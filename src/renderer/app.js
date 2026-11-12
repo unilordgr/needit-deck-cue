@@ -127,6 +127,79 @@ function appOptions(current, autoLabel, isPdf = false) {
     .join('');
 }
 
+// ---------- show-machine mode ----------
+let showModeInfo = null; // { active, quietOk, items, apps }
+let showModeCfg = null;
+
+function renderShowModeIndicators() {
+  const on = !!runtime.showMode;
+  $('showModeBadge').hidden = !on;
+  $('showModeBtn').classList.toggle('on', on);
+  $('showModeBtn').textContent = on ? 'Show mode ON' : 'Show mode';
+  const t = $('showModeToggle');
+  t.textContent = on ? 'Show mode is ON (click to turn off)' : 'Turn show mode on';
+  t.classList.toggle('on', on);
+}
+
+async function refreshShowMode() {
+  showModeInfo = await api.showModeReadiness();
+  renderShowModePanel();
+}
+
+function renderShowModePanel() {
+  renderShowModeIndicators();
+  if (showModeCfg) $('showModeAuto').checked = !!showModeCfg.autoStart;
+  const items = showModeInfo ? showModeInfo.items : [];
+  $('showModeItems').innerHTML = items.map((i, n) => `<li class="${i.level}">${esc(i.text)}${
+    i.fix === 'quit-apps' ? ` <button class="btn small fix" data-fix="quit-apps">Quit them</button>`
+      : i.fix === 'focus-help' ? ` <button class="btn small ghost fix" data-fix="focus-help">How?</button>` : ''}</li>`).join('') || '<li class="info">Checking…</li>';
+}
+
+function showFocusHelp() {
+  const c = showModeCfg || {};
+  const box = $('focusHelp');
+  box.hidden = false;
+  box.innerHTML = `macOS doesn't let apps switch Do Not Disturb, but Deck Cue can run two Shortcuts you make once:
+    <ol>
+      <li>Open the Shortcuts app and create a shortcut named <code>${esc(c.focusOn)}</code> with the action <b>Set Focus</b> → <b>Do Not Disturb</b> → <b>On</b>.</li>
+      <li>Create another named <code>${esc(c.focusOff)}</code> with <b>Set Focus</b> → <b>Do Not Disturb</b> → <b>Off</b>.</li>
+      <li>Come back and press <b>Check again</b>. Show mode runs them when it turns on and off.</li>
+    </ol>
+    <button class="btn small" id="openShortcuts">Open Shortcuts</button>`;
+  $('openShortcuts').onclick = () => api.openShortcuts();
+}
+
+function setupShowMode() {
+  $('showModeBtn').onclick = async () => {
+    $('showModeModal').hidden = false;
+    $('focusHelp').hidden = true;
+    showModeCfg = await api.showModeConfig();
+    renderShowModePanel();
+    refreshShowMode();
+  };
+  $('showModeClose').onclick = () => { $('showModeModal').hidden = true; };
+  $('showModeModal').onclick = (e) => { if (e.target === $('showModeModal')) $('showModeModal').hidden = true; };
+  $('showModeToggle').onclick = async () => {
+    $('showModeToggle').disabled = true;
+    await api.showModeSet(!runtime.showMode);
+    $('showModeToggle').disabled = false;
+    refreshShowMode();
+  };
+  $('showModeAuto').onchange = async (e) => { showModeCfg = await api.showModeConfig({ autoStart: e.target.checked }); };
+  $('showModeRefresh').onclick = () => refreshShowMode();
+  $('showModeItems').onclick = async (e) => {
+    const fix = e.target.dataset && e.target.dataset.fix;
+    if (fix === 'focus-help') showFocusHelp();
+    if (fix === 'quit-apps') {
+      const apps = showModeInfo ? showModeInfo.apps : [];
+      if (!apps.length || !confirm(`Quit ${apps.join(', ')}? Unsaved work in those apps may be lost.`)) return;
+      const quit = await api.showModeQuitApps(apps);
+      flash(`Asked to quit: ${quit.join(', ')}`, 'info');
+      setTimeout(refreshShowMode, 2000);
+    }
+  };
+}
+
 // ---------- preflight ----------
 const PF_ICON = { ok: '✓', info: '✓', warn: '⚠', error: '✕' };
 function pfFor(c) { return (runtime.preflight || {})[c.id]; }
@@ -703,6 +776,7 @@ function setupKeyboard() {
     }
     if (!$('settings').hidden) { if (e.key === 'Escape') $('settings').hidden = true; return; }
     if (!$('preflightModal').hidden) { if (e.key === 'Escape') $('preflightModal').hidden = true; return; }
+    if (!$('showModeModal').hidden) { if (e.key === 'Escape') $('showModeModal').hidden = true; return; }
     const accel = accelFromEvent(e);
     if (!accel) return;
     // Cue shortcuts (global ones are handled by the main process, which also fires while we're focused).
@@ -745,13 +819,16 @@ async function init() {
   setupEditor();
   setupKeyboard();
   setupStageBar();
+  setupShowMode();
   render();
+  renderShowModeIndicators();
 
   api.on('state', (s) => {
     runtime = s;
     renderGrid();
     renderStatus();
     renderPreflightButton();
+    renderShowModeIndicators();
     if (selectedId) renderEditor();
     if (!$('preflightModal').hidden) renderPreflightReport();
     tickTimer();

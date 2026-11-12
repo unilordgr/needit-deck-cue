@@ -18,6 +18,7 @@ const presenters = require('./presenters');
 const { createControlServer, localAddresses } = require('./control/server');
 const { createFollower } = require('./control/follower');
 const preflight = require('./preflight');
+const showmode = require('./showmode');
 
 let win = null;
 let show = null;
@@ -28,7 +29,8 @@ let shortcutReport = {};
 const DEFAULT_CONTROL = { enabled: true, allowNetwork: false, httpPort: 9640, oscPort: 9641, oscFeedbackHost: '', oscFeedbackPort: 9642 };
 // Main/backup: a backup follows the main machine's cues, slides, blackout, timer and messages.
 const DEFAULT_SYNC = { role: 'standalone', mainHost: '', mainPort: 9640, mirrorBlackout: true, mirrorTimer: true };
-let prefs = { control: { ...DEFAULT_CONTROL }, sync: { ...DEFAULT_SYNC } };
+const DEFAULT_SHOWMODE = { autoStart: false };
+let prefs = { control: { ...DEFAULT_CONTROL }, sync: { ...DEFAULT_SYNC }, showMode: { ...DEFAULT_SHOWMODE } };
 let control = null;
 let follower = null;
 let followers = [];       // names of backups following this machine
@@ -43,6 +45,7 @@ const state = {
   timer: { duration: 0, remaining: 0, endsAt: null, running: false },
   stageMessage: { text: '', flash: false }, // shown on the stage display
   preflight: {}, // cueId -> { level: ok|info|warn|error, items: [{ level, text }] }
+  showMode: false, // show-machine mode (no sleep, notifications quiet)
 };
 const blackoutWins = new Map();
 
@@ -92,7 +95,12 @@ function autosave() {
 
 function loadInitial() {
   const saved = readJSON(userFile('prefs.json')) || {};
-  prefs = { ...saved, control: { ...DEFAULT_CONTROL, ...(saved.control || {}) }, sync: { ...DEFAULT_SYNC, ...(saved.sync || {}) } };
+  prefs = {
+    ...saved,
+    control: { ...DEFAULT_CONTROL, ...(saved.control || {}) },
+    sync: { ...DEFAULT_SYNC, ...(saved.sync || {}) },
+    showMode: { ...DEFAULT_SHOWMODE, ...(saved.showMode || {}) },
+  };
   const auto = readJSON(userFile('autosave.deckcue'));
   show = normalizeShow(auto || defaultShow());
   showPath = saved.showPath && fs.existsSync(saved.showPath) ? saved.showPath : null;
@@ -249,6 +257,15 @@ function setMessage(msg, level = 'info') {
 
 function cueAutoSlideshow(cue) {
   return cue.autoSlideshow === true || cue.autoSlideshow === false ? cue.autoSlideshow : show.settings.defaultAutoSlideshow;
+}
+
+// ---------- show-machine mode ----------
+async function setShowMode(on) {
+  const want = on === undefined ? !state.showMode : !!on;
+  const r = await showmode.setActive(want);
+  state.showMode = r.active;
+  broadcast();
+  return r;
 }
 
 // ---------- preflight ----------
@@ -667,6 +684,7 @@ function remoteState() {
       file: state.live && state.live.app === 'pdf' ? `/api/cue/${encodeURIComponent(liveCue.id)}/file` : null,
     } : null,
     role: prefs.sync.role,
+    showMode: state.showMode,
     timer: { duration: state.timer.duration, remaining: timerRemaining(), running: state.timer.running, endsAt: state.timer.endsAt },
     stageMessage: state.stageMessage,
     next: ref(nextCue),
@@ -735,6 +753,14 @@ function setupIpc() {
     try { return await pullShowFromMain(); } catch (e) { return { error: e.message }; }
   });
   ipcMain.handle('preflight:run', () => schedulePreflight(0));
+  ipcMain.handle('showmode:set', (_e, on) => setShowMode(on));
+  ipcMain.handle('showmode:readiness', () => showmode.readiness());
+  ipcMain.handle('showmode:quitApps', (_e, labels) => showmode.quitApps(labels));
+  ipcMain.handle('showmode:config', (_e, patch) => {
+    if (patch) { prefs.showMode = { ...prefs.showMode, ...patch }; autosave(); }
+    return { ...prefs.showMode, focusOn: showmode.FOCUS_ON, focusOff: showmode.FOCUS_OFF, platform: process.platform };
+  });
+  ipcMain.handle('showmode:openShortcuts', () => shell.openPath('/System/Applications/Shortcuts.app'));
   ipcMain.handle('timer:cmd', (_e, cmd, seconds) => timerCommand(cmd, seconds));
   ipcMain.handle('stage:message', (_e, text, flash) => setStageMessage(text, flash));
   ipcMain.handle('stage:open', (_e, view) => shell.openExternal(`http://127.0.0.1:${prefs.control.httpPort}/stage${view === 'timer' ? '?view=timer' : ''}`));
@@ -793,7 +819,8 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 900, minHeight: 560, backgroundColor: '#0e1014', title: APP_NAME,
     ...(IS_MAC ? { titleBarStyle: 'hiddenInset' } : { autoHideMenuBar: true }),
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+    // backgroundThrottling off: timers, sync and the remote API must keep full speed when the window is hidden.
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
@@ -802,6 +829,14 @@ function createWindow() {
   });
   win.webContents.on('preload-error', (_e, p, err) => console.error('[preload]', p, err));
   win.on('close', async (e) => {
+    if (state.showMode && !app.isQuitting && !app.showModeQuitConfirmed) {
+      e.preventDefault();
+      const r = await dialog.showMessageBox(win, { type: 'warning', buttons: ['Quit', 'Cancel'], defaultId: 1, cancelId: 1, message: 'Show mode is on. Quit needit Deck Cue?' });
+      if (r.response !== 0) return;
+      app.showModeQuitConfirmed = true;
+      win.close();
+      return;
+    }
     if (dirty && show.cues.length && !app.isQuitting) {
       e.preventDefault();
       if (await confirmDiscard()) { app.isQuitting = true; app.quit(); }
@@ -850,6 +885,7 @@ app.whenReady().then(() => {
       armStep,
       timer: timerCommand,
       stageMessage: setStageMessage,
+      showMode: (on) => setShowMode(on),
       cueFile: (ref) => {
         const c = cueByRef(ref);
         const f = c.file && c.file.path;
@@ -866,6 +902,7 @@ app.whenReady().then(() => {
   startControl();
   startSync();
   schedulePreflight(1500);
+  if (prefs.showMode.autoStart) setShowMode(true);
   // While a backup is connected, re-send the state every few seconds so it can correct any drift
   // (e.g. its own clicker moved a slide) even when nothing changes on the main.
   setInterval(() => { if (followers.length && control) control.update(); }, 3000);
@@ -877,3 +914,15 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => { globalShortcut.unregisterAll(); hideBlack(); preflight.closeProbe(); if (control) control.stop(); if (follower) follower.stop(); });
 app.on('window-all-closed', () => app.quit());
+// Turn show mode off before quitting so notification settings are restored.
+app.on('before-quit', async (e) => {
+  if (!showmode.isActive()) return;
+  e.preventDefault();
+  if (!app.showModeQuitConfirmed) {
+    const r = await dialog.showMessageBox(win && !win.isDestroyed() ? win : undefined, { type: 'warning', buttons: ['Quit', 'Cancel'], defaultId: 1, cancelId: 1, message: 'Show mode is on. Quit needit Deck Cue?' });
+    if (r.response !== 0) return;
+    app.showModeQuitConfirmed = true;
+  }
+  await showmode.setActive(false).catch(() => {});
+  app.quit();
+});

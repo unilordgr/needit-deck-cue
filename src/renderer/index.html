@@ -15,6 +15,7 @@
       <span>Output</span>
       <select id="defaultOutput" title="Default display for slideshows"></select>
     </label>
+    <button id="showModeBtn" class="btn ghost showmode-btn" title="Show-machine mode: no sleep, quiet notifications, readiness checks">Show mode</button>
     <button id="preflightBtn" class="btn ghost preflight-btn" title="Check every cue for missing files, fonts, media and output problems">Preflight</button>
     <button id="identifyBtn" class="btn ghost" title="Show a number on every display">Identify</button>
     <label class="toggle" title="New cues and cues set to 'Default' start the slideshow automatically">
@@ -27,6 +28,7 @@
   <section class="statusbar">
     <div class="status-live"><b>LIVE</b> <span id="liveText">—</span></div>
     <div class="status-armed"><b>NEXT</b> <span id="armedText">—</span></div>
+    <div id="showModeBadge" class="showmode-badge" hidden>SHOW MODE</div>
     <div id="syncBadge" class="sync-badge" hidden></div>
     <div id="message" class="message" hidden></div>
   </section>
@@ -122,6 +124,20 @@
       <div id="remoteControl" class="remote"></div>
       <h3>System</h3>
       <div id="envInfo" class="env"></div>
+    </div>
+  </div>
+
+  <div id="showModeModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="editor-head">
+        <h2>Show-machine mode</h2>
+        <button id="showModeClose" class="btn ghost small">✕</button>
+      </div>
+      <button id="showModeToggle" class="btn showmode-toggle">Turn show mode on</button>
+      <label class="toggle"><input type="checkbox" id="showModeAuto"><span>Turn on when Deck Cue starts</span></label>
+      <h3>Readiness <button id="showModeRefresh" class="btn small ghost">Check again</button></h3>
+      <ul id="showModeItems" class="pf-list"></ul>
+      <div id="focusHelp" class="focus-help" hidden></div>
     </div>
   </div>
 

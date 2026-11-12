@@ -21,6 +21,7 @@ body {
   font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   display: grid;
   grid-template-rows: auto auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr); /* no row may push the window wider than the screen */
   user-select: none;
   overflow: hidden;
 }
@@ -38,6 +39,12 @@ body {
 .topbar .show-name { flex: 0 1 260px; min-width: 90px; }
 .topbar .field { flex-shrink: 1; min-width: 0; }
 .topbar .field select { min-width: 110px; max-width: 300px; }
+.topbar { overflow: hidden; }
+@media (max-width: 1400px) {
+  .topbar .field > span { display: none; }   /* the "Output" label; the select explains itself */
+  .topbar .field select { max-width: 200px; }
+  .topbar .show-name { flex-basis: 180px; }
+}
 body.mac .topbar { padding-left: 84px; } /* room for the traffic lights */
 .brand { font-weight: 800; letter-spacing: .12em; font-size: 14px; -webkit-app-region: drag; }
 .brand span { color: var(--live); }
@@ -102,6 +109,14 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
 .pf-report { display: flex; flex-direction: column; gap: 12px; }
 .pf-report h4 { margin: 0; font-size: 13px; display: flex; gap: 8px; align-items: center; }
 .pf-report .pf-empty { color: var(--go); font-weight: 600; }
+.showmode-btn.on { background: #3a2f0b; color: #ffd66b; border-color: #6b5410; }
+.showmode-badge { padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; letter-spacing: .1em; background: #3a2f0b; color: #ffd66b; }
+.showmode-toggle { padding: 14px; font-size: 16px; }
+.showmode-toggle.on { background: var(--armed); color: #000; border-color: var(--armed); }
+.pf-list li .fix { margin-left: 8px; }
+.focus-help { font-size: 12.5px; line-height: 1.5; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; user-select: text; }
+.focus-help ol { margin: 6px 0; padding-left: 20px; }
+.focus-help code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .sync-badge { padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
 .sync-badge.ok { background: #0f2e1d; color: #6be3a0; }
 .sync-badge.warn { background: #3a2f0b; color: #ffd66b; }

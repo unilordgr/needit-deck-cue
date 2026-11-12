@@ -30,6 +30,25 @@ Deck Cue detects which apps are installed (⚙︎ Settings › System lists them
 - WPS can't close a deck while a slideshow is running. With *Close the previous presentation* on, Deck Cue closes the old deck *before* starting the next one, so the editor shows for a moment during the change. Turn on *black backdrop* in Settings to hide it on the output.
 - Don't leave a dialog open in WPS (Save, Recover, etc.). Deck Cue can't click Play while one is showing.
 
+## Show-machine mode
+
+One switch (**Show mode** in the top bar) makes the computer safe to run a show from.
+
+**While it's on:**
+- **No sleep, screensaver or power-saving slowdowns.** The display stays awake, and Deck Cue keeps full speed in the background, so timers, sync and remote control never stall.
+- **Notifications are silenced:**
+  - *Windows*: app notifications are turned off. The previous setting comes back when show mode turns off or Deck Cue quits.
+  - *macOS*: Apple gives apps no way to switch Do Not Disturb. Make two Shortcuts once, `Deck Cue Show On` (Set Focus → Do Not Disturb → On) and `Deck Cue Show Off` (→ Off), and show mode runs them. The panel explains how and opens the Shortcuts app.
+- **A SHOW MODE badge** appears in the status bar, and quitting asks for confirmation.
+
+**Readiness checks in the panel:**
+- **Apps that can pop up over a show:** Slack, Teams, Zoom, Webex, WhatsApp, Telegram, Signal, Discord, Skype, Messages, FaceTime, Mail, Outlook, Spotify, Dropbox, OneDrive, Google Drive, Creative Cloud, Microsoft AutoUpdate. **Quit them** asks them to close (never forced), and only when you click it.
+- **Running on battery.**
+- **Sound muted or at 0** (macOS).
+- **Less than 5 GB free disk space.**
+
+**Turn on when Deck Cue starts** keeps it on for a dedicated show machine. It can also be switched remotely: `POST /api/showmode[?state=on|off]`, OSC `/deckcue/showmode [0|1]`, or the Companion *Show-machine mode* action.
+
 ## Preflight
 
 Deck Cue checks every cue on **this computer** and shows the result:
@@ -135,6 +154,7 @@ To install it:
 | `POST /api/arm/next`, `/api/arm/prev` | Move the NEXT cue |
 | `POST /api/timer/start`, `/pause`, `/reset`, `/set?seconds=N`, `/add?seconds=N` | Speaker timer (negative `add` removes time) |
 | `POST /api/message?text=…&flash=1`, `/api/message/clear` | Stage message |
+| `POST /api/showmode[?state=on\|off]` | Show-machine mode (toggle without state) |
 | `GET /stage`, `/stage?view=timer` | Stage display page |
 | `ws://host:9640/api/ws` | Pushes `{"type":"state","state":…}` on connect and on every change |
 

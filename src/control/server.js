@@ -8,6 +8,7 @@
 //        POST /api/arm/next | /api/arm/prev
 //        POST /api/timer/start | pause | reset, /api/timer/set?seconds=N, /api/timer/add?seconds=N
 //        POST /api/message?text=...&flash=1, /api/message/clear
+//        POST /api/showmode[?state=on|off]     show-machine mode (toggle without state)
 //        GET  /api/cue/<ref>/file             the cue's PDF (for stage display previews)
 //        GET  /stage                           stage display / confidence monitor page
 //        GET  /api/show                        the show file (cues and settings), for a backup to copy
@@ -72,6 +73,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
       case 'arm-prev': return actions.armStep(-1);
       case 'timer': return actions.timer(arg.cmd, arg.seconds);
       case 'message': return actions.stageMessage(arg.text, arg.flash);
+      case 'showmode': return actions.showMode(arg);
       default: throw Object.assign(new Error(`Unknown action ${action}`), { code: 404 });
     }
   }
@@ -100,6 +102,10 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     if (a === 'timer' && ['start', 'pause', 'reset', 'set', 'add'].includes(b) && !c) return { action: 'timer', arg: { cmd: b, seconds: query.get('seconds') } };
     if (a === 'message' && !b) return { action: 'message', arg: { text: query.get('text') || '', flash: ['1', 'true', 'on'].includes(query.get('flash')) } };
     if (a === 'message' && b === 'clear' && !c) return { action: 'message', arg: { text: '', flash: false } };
+    if (a === 'showmode' && !b) {
+      const st = query.get('state');
+      return { action: 'showmode', arg: st === 'on' ? true : st === 'off' ? false : undefined };
+    }
     return null;
   }
 
@@ -151,6 +157,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
         else if (parts[0] === 'timer' && ['start', 'pause', 'reset', 'set', 'add'].includes(parts[1]) && parts.length === 2) run('timer', { cmd: parts[1], seconds: args[0] });
         else if (parts[0] === 'message' && parts.length === 1) run('message', { text: args.length ? String(args[0]) : '', flash: args.length > 1 && Boolean(args[1]) });
         else if (parts[0] === 'message' && parts[1] === 'clear' && parts.length === 2) run('message', { text: '', flash: false });
+        else if (parts[0] === 'showmode' && parts.length === 1) run('showmode', args.length ? Boolean(args[0]) : undefined);
       } catch { /* ignore bad OSC input */ }
     }
   }

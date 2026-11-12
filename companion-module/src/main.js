@@ -152,6 +152,7 @@ class DeckCueInstance extends InstanceBase {
 		const values = {
 			show_name: state.show || '',
 			role: state.role || 'standalone',
+			show_mode: state.showMode ? 'ON' : 'OFF',
 			live_number: live ? live.number : '',
 			live_name: live ? live.name : '',
 			next_number: state.next ? state.next.number : '',
@@ -261,6 +262,23 @@ class DeckCueInstance extends InstanceBase {
 				},
 			},
 			message_clear: { name: 'Stage message: clear', options: [], callback: () => this.post('/api/message/clear') },
+			show_mode: {
+				name: 'Show-machine mode',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'mode',
+						label: 'Mode',
+						default: 'toggle',
+						choices: [
+							{ id: 'toggle', label: 'Toggle' },
+							{ id: 'on', label: 'On' },
+							{ id: 'off', label: 'Off' },
+						],
+					},
+				],
+				callback: (a) => this.post(a.options.mode === 'toggle' ? '/api/showmode' : `/api/showmode?state=${a.options.mode}`),
+			},
 		})
 
 		const cueState = (o, wanted) => {
@@ -338,6 +356,13 @@ class DeckCueInstance extends InstanceBase {
 				options: [],
 				callback: () => !this.timerIdle() && this.timerRemaining() < 0,
 			},
+			show_mode: {
+				type: 'boolean',
+				name: 'Show mode is on',
+				defaultStyle: { bgcolor: YELLOW, color: BLACK },
+				options: [],
+				callback: () => !!(this.state && this.state.showMode),
+			},
 			message_showing: {
 				type: 'boolean',
 				name: 'Stage message is showing',
@@ -403,6 +428,7 @@ class DeckCueInstance extends InstanceBase {
 		const variables = [
 			{ variableId: 'show_name', name: 'Show name' },
 			{ variableId: 'role', name: 'Role of this Deck Cue (standalone/main/backup)' },
+			{ variableId: 'show_mode', name: 'Show-machine mode (ON/OFF)' },
 			{ variableId: 'live_number', name: 'Live cue number' },
 			{ variableId: 'live_name', name: 'Live cue name' },
 			{ variableId: 'next_number', name: 'Next cue number' },
@@ -452,6 +478,9 @@ class DeckCueInstance extends InstanceBase {
 			{ feedbackId: 'show_preflight', options: { level: 'error' }, style: { bgcolor: RED, color: WHITE } },
 		])
 		presets.preflight.steps = [{ down: [], up: [] }]
+		presets.show_mode = button('Transport', 'Show mode toggle', 'SHOW\\nMODE', 'show_mode', { mode: 'toggle' }, {}, [
+			{ feedbackId: 'show_mode', options: {}, style: { bgcolor: YELLOW, color: BLACK } },
+		])
 		// The live display preset shouldn't stop the show when pressed.
 		presets.live_display.steps = [{ down: [], up: [] }]
 
