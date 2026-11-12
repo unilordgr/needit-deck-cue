@@ -153,6 +153,7 @@ class DeckCueInstance extends InstanceBase {
 			show_name: state.show || '',
 			role: state.role || 'standalone',
 			show_mode: state.showMode ? 'ON' : 'OFF',
+			presenter: !state.presenter || !state.presenter.enabled ? 'OFF' : state.presenter.muted ? 'PAUSED' : 'ON',
 			live_number: live ? live.number : '',
 			live_name: live ? live.name : '',
 			next_number: state.next ? state.next.number : '',
@@ -262,6 +263,23 @@ class DeckCueInstance extends InstanceBase {
 				},
 			},
 			message_clear: { name: 'Stage message: clear', options: [], callback: () => this.post('/api/message/clear') },
+			presenter_mute: {
+				name: 'Presenter remote: pause / allow',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'mode',
+						label: 'Mode',
+						default: 'toggle',
+						choices: [
+							{ id: 'toggle', label: 'Toggle' },
+							{ id: 'on', label: 'Pause' },
+							{ id: 'off', label: 'Allow' },
+						],
+					},
+				],
+				callback: (a) => this.post(a.options.mode === 'toggle' ? '/api/presenter/mute' : `/api/presenter/mute?state=${a.options.mode}`),
+			},
 			show_mode: {
 				name: 'Show-machine mode',
 				options: [
@@ -356,6 +374,33 @@ class DeckCueInstance extends InstanceBase {
 				options: [],
 				callback: () => !this.timerIdle() && this.timerRemaining() < 0,
 			},
+			presenter_paused: {
+				type: 'boolean',
+				name: 'Presenter remote is paused',
+				defaultStyle: { bgcolor: YELLOW, color: BLACK },
+				options: [],
+				callback: () => !!(this.state && this.state.presenter && this.state.presenter.enabled && this.state.presenter.muted),
+			},
+			cue_updated: {
+				type: 'boolean',
+				name: 'Cue file changed on disk',
+				defaultStyle: { bgcolor: combineRgb(31, 79, 168), color: WHITE },
+				options: [cueOption],
+				callback: (f) => {
+					const c = this.findCue(f.options.cue)
+					return !!c && !!c.changed
+				},
+			},
+			cue_newer: {
+				type: 'boolean',
+				name: 'Newer version of the cue file available',
+				defaultStyle: { bgcolor: YELLOW, color: BLACK },
+				options: [cueOption],
+				callback: (f) => {
+					const c = this.findCue(f.options.cue)
+					return !!c && !!c.newer
+				},
+			},
 			show_mode: {
 				type: 'boolean',
 				name: 'Show mode is on',
@@ -429,6 +474,7 @@ class DeckCueInstance extends InstanceBase {
 			{ variableId: 'show_name', name: 'Show name' },
 			{ variableId: 'role', name: 'Role of this Deck Cue (standalone/main/backup)' },
 			{ variableId: 'show_mode', name: 'Show-machine mode (ON/OFF)' },
+			{ variableId: 'presenter', name: 'Presenter remote (ON/PAUSED/OFF)' },
 			{ variableId: 'live_number', name: 'Live cue number' },
 			{ variableId: 'live_name', name: 'Live cue name' },
 			{ variableId: 'next_number', name: 'Next cue number' },
@@ -478,6 +524,9 @@ class DeckCueInstance extends InstanceBase {
 			{ feedbackId: 'show_preflight', options: { level: 'error' }, style: { bgcolor: RED, color: WHITE } },
 		])
 		presets.preflight.steps = [{ down: [], up: [] }]
+		presets.presenter = button('Transport', 'Presenter remote pause/allow', `PRESENTER\\n${v('presenter')}`, 'presenter_mute', { mode: 'toggle' }, { size: '14' }, [
+			{ feedbackId: 'presenter_paused', options: {}, style: { bgcolor: YELLOW, color: BLACK } },
+		])
 		presets.show_mode = button('Transport', 'Show mode toggle', 'SHOW\\nMODE', 'show_mode', { mode: 'toggle' }, {}, [
 			{ feedbackId: 'show_mode', options: {}, style: { bgcolor: YELLOW, color: BLACK } },
 		])

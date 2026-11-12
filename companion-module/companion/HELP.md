@@ -15,19 +15,21 @@ Controls [needit Deck Cue](https://github.com/unilordgr/needit-deck-cue), a cue 
 - **Fire cue** / **Arm cue**: pick a cue, or type its number or name.
 - **Arm next cue** / **Arm previous cue**.
 - **Show-machine mode**: toggle, on or off.
+- **Presenter remote: pause / allow**.
 - **Timer: start / pause / start-pause / reset / set (minutes) / add or remove time**: the speaker timer on Deck Cue's stage display.
 - **Stage message: show / clear**: text on the stage display, optionally flashing. Variables are allowed.
 
 ### Feedbacks
 - **Cue is live** (red), **Cue is next** (yellow), **Cue is loading**, **Cue file missing**.
 - **Blackout is on**, **Something is live**.
-- **Show mode is on**.
+- **Show mode is on**, **Presenter remote is paused**.
+- **Cue file changed on disk**, **Newer version of the cue file available**.
 - **Cue has preflight problems** (error, or anything to check) and **Show has preflight problems**.
 - **Timer is running**, **Timer is nearly done** (amber, threshold in seconds), **Timer is over time** (red), **Stage message is showing**.
 - **Cue colour**: the colour set on the cue in Deck Cue.
 
 ### Variables
-- `show_name`, `role` (standalone/main/backup), `preflight` (Ready / 2 to check / 1 won't play), `show_mode` (ON/OFF)
+- `show_name`, `role` (standalone/main/backup), `preflight` (Ready / 2 to check / 1 won't play), `show_mode` (ON/OFF), `presenter` (ON/PAUSED/OFF)
 - `live_number`, `live_name`, `next_number`, `next_name`
 - `slide`, `slides`, `slide_text` (for example "3/12"; for PDF cues)
 - `blackout`, `cue_count`, and `cue_N_name` for every cue

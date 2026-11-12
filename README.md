@@ -30,6 +30,54 @@ Deck Cue detects which apps are installed (⚙︎ Settings › System lists them
 - WPS can't close a deck while a slideshow is running. With *Close the previous presentation* on, Deck Cue closes the old deck *before* starting the next one, so the editor shows for a moment during the change. Turn on *black backdrop* in Settings to hide it on the output.
 - Don't leave a dialog open in WPS (Save, Recover, etc.). Deck Cue can't click Play while one is showing.
 
+## Versions of files
+
+Speakers change their decks until the last minute. Deck Cue watches every cue's file. This works on network shares and USB drives too.
+- **UPDATED** (blue): the file changed on disk. If that cue is live, you're told that the running show still has the old version; fire the cue again to load the new one.
+- **NEW VERSION** (amber): a newer file with the same name in the same folder. Version markers are recognised: `_v7` → `_v8`, `FINAL` → `FINAL 2`, `rev4` → `rev5`, `(3)`, `-2` → `-3`, `copy`. "Day 2" and "Day 3" stay separate decks. The cue editor offers **Use it** or **Ignore**.
+- **Settings › Newer version of a file in its folder** chooses *Show it and ask* (default), *Switch to it automatically* or *Ignore*.
+
+## Thumbnails
+
+Each cue button shows its first slide. On macOS, Quick Look renders any deck or PDF, with no Office needed. On Windows, Deck Cue uses the preview PowerPoint saves inside the `.pptx`, and pdf.js for PDFs. The stage display shows the next cue's thumbnail too.
+
+## Presenter remote (phone)
+
+Turn it on in **Settings › Presenter remote**. Speakers scan the QR code, or open `http://<deck-cue>:9640/remote` and enter the PIN.
+- They get large **NEXT / PREV** buttons, the current slide, the slide number, the timer and your stage messages.
+- A Bluetooth clicker paired with the phone works too.
+
+**Safeguards**
+- Only NEXT and PREV are available to presenters.
+- Five wrong PINs lock that device out for a minute. **New PIN** changes it.
+- The **PRESENTER** chip in the status bar pauses it instantly (also from Companion or `POST /api/presenter/mute`).
+- Untick a cue's *Presenter remote can change slides* to keep that cue operator-only.
+- Presses go through Deck Cue, so a backup machine follows them.
+
+## Live slide number
+
+While a cue is live, Deck Cue reads which slide is showing, once a second:
+- **macOS:** PowerPoint and Keynote
+- **Windows:** PowerPoint and WPS (through one long-running PowerShell)
+- **PDF:** always
+
+The slide number feeds the stage display, presenter remote, Companion and OSC. A backup catches up to the exact slide where the app allows jumping (PDF, Windows PowerPoint/WPS, Keynote). **WPS for Mac** can't report its slide (no scripting), so it is followed with next/previous only.
+
+## MIDI
+
+**Settings › MIDI › Listen to MIDI.** It works with any connected MIDI device or virtual port (IAC, a lighting desk, QLab…):
+- **Notes** fire cues. Note 60 (middle C) = cue 1, 61 = cue 2… The base note is adjustable.
+- **Program Change** n fires cue n+1.
+- **MIDI Show Control**: GO with a cue number fires that cue, GO without one is the GO button, and STOP / ALL_OFF stop.
+- **Learn** maps any note, CC or program change to GO, Stop, Next slide, Previous slide or Blackout.
+- You can filter the input and channel, and the panel shows the last message received.
+
+## Program window (NDI / OBS capture)
+
+Choose the output **Program window (for NDI / OBS capture)** for a PDF cue. It plays in a normal 16:9 window titled *needit Deck Cue — Program* instead of on a screen. NDI Tools *Screen Capture*, OBS (with its NDI plugin) or vMix can capture that window by name and send it as NDI, without needing a spare monitor. PowerPoint, WPS and Keynote can't render into a window, so for those cues capture their output screen instead.
+
+Deck Cue doesn't send NDI itself. That needs the proprietary NDI SDK as a native add-on.
+
 ## Show-machine mode
 
 One switch (**Show mode** in the top bar) makes the computer safe to run a show from.
@@ -46,6 +94,7 @@ One switch (**Show mode** in the top bar) makes the computer safe to run a show 
 - **Running on battery.**
 - **Sound muted or at 0** (macOS).
 - **Less than 5 GB free disk space.**
+- **Where the sound plays**, with a warning for the computer's own speakers while a projector is connected, or for Bluetooth.
 
 **Turn on when Deck Cue starts** keeps it on for a dedicated show machine. It can also be switched remotely: `POST /api/showmode[?state=on|off]`, OSC `/deckcue/showmode [0|1]`, or the Companion *Show-machine mode* action.
 
@@ -155,6 +204,10 @@ To install it:
 | `POST /api/timer/start`, `/pause`, `/reset`, `/set?seconds=N`, `/add?seconds=N` | Speaker timer (negative `add` removes time) |
 | `POST /api/message?text=…&flash=1`, `/api/message/clear` | Stage message |
 | `POST /api/showmode[?state=on\|off]` | Show-machine mode (toggle without state) |
+| `POST /api/presenter/mute[?state=on\|off]` | Pause / allow the presenter remote |
+| `POST /api/presenter/next`, `/prev`, `/check` + header `X-Presenter-Pin` | Presenter remote (PIN) |
+| `GET /api/cue/<ref>/thumb` | First-slide thumbnail |
+| `GET /remote` | Presenter phone remote |
 | `GET /stage`, `/stage?view=timer` | Stage display page |
 | `ws://host:9640/api/ws` | Pushes `{"type":"state","state":…}` on connect and on every change |
 
