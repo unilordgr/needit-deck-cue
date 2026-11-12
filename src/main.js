@@ -1,5 +1,5 @@
 const APP_NAME = 'needit Deck Cue';
-const { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Menu, systemPreferences, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Menu, systemPreferences, shell, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -34,7 +34,9 @@ const DEFAULT_SYNC = { role: 'standalone', mainHost: '', mainPort: 9640, mirrorB
 const DEFAULT_SHOWMODE = { autoStart: false };
 const newPin = () => String(Math.floor(1000 + Math.random() * 9000));
 const DEFAULT_PRESENTER = { enabled: false, pin: '' };
-let prefs = { control: { ...DEFAULT_CONTROL }, sync: { ...DEFAULT_SYNC }, showMode: { ...DEFAULT_SHOWMODE }, presenter: { ...DEFAULT_PRESENTER } };
+// MIDI input (handled in the main window with Web MIDI). map: action -> learned message { type, ch, num }.
+const DEFAULT_MIDI = { enabled: false, input: 'all', channel: 0, notes: true, noteBase: 60, programChange: true, msc: true, map: {} };
+let prefs = { control: { ...DEFAULT_CONTROL }, sync: { ...DEFAULT_SYNC }, showMode: { ...DEFAULT_SHOWMODE }, presenter: { ...DEFAULT_PRESENTER }, midi: { ...DEFAULT_MIDI } };
 let control = null;
 let follower = null;
 let followers = [];       // names of backups following this machine
@@ -109,6 +111,7 @@ function loadInitial() {
     sync: { ...DEFAULT_SYNC, ...(saved.sync || {}) },
     showMode: { ...DEFAULT_SHOWMODE, ...(saved.showMode || {}) },
     presenter: { ...DEFAULT_PRESENTER, ...(saved.presenter || {}) },
+    midi: { ...DEFAULT_MIDI, ...(saved.midi || {}) },
   };
   if (!prefs.presenter.pin) prefs.presenter.pin = newPin();
   const auto = readJSON(userFile('autosave.deckcue'));
@@ -870,6 +873,8 @@ function setupIpc() {
   });
   ipcMain.handle('preflight:run', () => schedulePreflight(0));
   ipcMain.handle('thumbs:get', () => thumbs);
+  ipcMain.handle('midi:get', () => prefs.midi);
+  ipcMain.handle('midi:set', (_e, config) => { prefs.midi = { ...DEFAULT_MIDI, ...config }; autosave(); return prefs.midi; });
   ipcMain.handle('presenter:get', () => presenterInfo());
   ipcMain.handle('presenter:set', async (_e, patch) => {
     prefs.presenter = { ...prefs.presenter, ...patch };
@@ -979,6 +984,10 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Web MIDI (incl. SysEx for MIDI Show Control) for the main window; nothing else is granted.
+  const allowed = new Set(['midi', 'midiSysex']);
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(allowed.has(permission)));
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowed.has(permission));
   presenters.pdfPlayer.on('status', (s) => {
     if (process.env.DECKCUE_DEBUG) console.log(`[pdf] page ${s.page}/${s.pages}`);
     if (state.live && state.live.app === 'pdf') {

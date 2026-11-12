@@ -128,6 +128,138 @@ function appOptions(current, autoLabel, isPdf = false) {
     .join('');
 }
 
+// ---------- MIDI ----------
+// Web MIDI in this window: notes / program changes fire cues, MIDI Show Control GO/STOP, and learned
+// messages for GO, Stop, Next/Prev slide and Blackout.
+let midi = null;          // settings (per computer)
+let midiAccess = null;
+let midiLearn = null;     // action being learned
+let midiLast = '';        // last message, for the monitor line
+const MIDI_ACTIONS = [['go', 'GO'], ['stop', 'Stop all'], ['next', 'Next slide'], ['prev', 'Previous slide'], ['blackout', 'Blackout']];
+
+function midiDescribe(m) {
+  if (!m) return 'not set';
+  const names = { note: 'Note', cc: 'CC', pc: 'Program' };
+  return `${names[m.type]} ${m.num} · ch ${m.ch}`;
+}
+
+function parseMidi(data) {
+  const [status, a, b] = data;
+  if (status === 0xf0) return { type: 'sysex', data };
+  const kind = status & 0xf0;
+  const ch = (status & 0x0f) + 1;
+  if (kind === 0x90 && b > 0) return { type: 'note', ch, num: a, vel: b };
+  if (kind === 0xb0) return { type: 'cc', ch, num: a, val: b };
+  if (kind === 0xc0) return { type: 'pc', ch, num: a };
+  return null;
+}
+
+// MIDI Show Control: F0 7F <device> 02 <format> <command> [cue number as ASCII] ... F7
+function parseMsc(data) {
+  if (data.length < 7 || data[1] !== 0x7f || data[3] !== 0x02) return null;
+  const device = data[2];
+  const command = data[5];
+  let cue = '';
+  for (let i = 6; i < data.length && data[i] !== 0x00 && data[i] !== 0xf7; i++) cue += String.fromCharCode(data[i]);
+  return { device, command, cue };
+}
+
+function midiAction(action) {
+  if (action === 'go') api.go();
+  else if (action === 'stop') api.stop();
+  else if (action === 'next') api.nav('next');
+  else if (action === 'prev') api.nav('previous');
+  else if (action === 'blackout') api.blackout();
+}
+
+function fireCueNumber(n) {
+  const cue = show.cues[n - 1];
+  if (cue) api.fire(cue.id);
+  else flash(`MIDI asked for cue ${n}, which doesn't exist.`, 'warn');
+}
+
+function onMidiMessage(e) {
+  if (!midi || !midi.enabled) return;
+  const input = e.target;
+  if (midi.input !== 'all' && input.name !== midi.input) return;
+  const m = parseMidi(Array.from(e.data));
+  if (!m) return;
+  if (m.type === 'sysex') {
+    const msc = midi.msc && parseMsc(m.data);
+    if (!msc) return;
+    midiLast = `MSC ${msc.command === 1 ? 'GO' : msc.command === 2 ? 'STOP' : `cmd ${msc.command}`}${msc.cue ? ` cue ${msc.cue}` : ''} (device ${msc.device})`;
+    if (msc.command === 0x01) { if (msc.cue && /^\d+$/.test(msc.cue)) fireCueNumber(Number(msc.cue)); else api.go(); }
+    else if (msc.command === 0x02 || msc.command === 0x0a) api.stop(); // STOP, ALL_OFF
+  } else {
+    midiLast = `${m.type === 'note' ? 'Note' : m.type === 'cc' ? 'CC' : 'Program'} ${m.num}${m.type === 'cc' ? ` = ${m.val}` : ''} · ch ${m.ch} · ${input.name}`;
+    if (midiLearn) {
+      midi.map = { ...midi.map, [midiLearn]: { type: m.type, ch: m.ch, num: m.num } };
+      midiLearn = null;
+      api.midiSet(midi);
+    } else if (!midi.channel || m.ch === midi.channel) {
+      // CC only triggers on press (value > 0), like a button.
+      const learned = Object.entries(midi.map || {}).find(([, v]) => v && v.type === m.type && v.num === m.num && v.ch === m.ch && (m.type !== 'cc' || m.val > 0));
+      if (learned) midiAction(learned[0]);
+      else if (m.type === 'note' && midi.notes && m.num >= midi.noteBase) fireCueNumber(m.num - midi.noteBase + 1);
+      else if (m.type === 'pc' && midi.programChange) fireCueNumber(m.num + 1);
+    }
+  }
+  if (!$('settings').hidden) renderMidiSettings();
+}
+
+async function startMidi() {
+  if (!midi || !midi.enabled || midiAccess) return;
+  if (!navigator.requestMIDIAccess) { flash('MIDI is not available on this computer.', 'warn'); return; }
+  try {
+    midiAccess = await navigator.requestMIDIAccess({ sysex: true });
+  } catch (e) {
+    flash(`MIDI could not start: ${e.message}`, 'warn');
+    return;
+  }
+  const attach = () => { for (const input of midiAccess.inputs.values()) input.onmidimessage = onMidiMessage; };
+  attach();
+  midiAccess.onstatechange = () => { attach(); if (!$('settings').hidden) renderMidiSettings(); };
+}
+
+function renderMidiSettings() {
+  const box = $('midiSettings');
+  if (!midi) { box.textContent = 'Loading…'; return; }
+  const inputs = midiAccess ? [...midiAccess.inputs.values()].map((i) => i.name) : [];
+  box.innerHTML = `
+    <label class="toggle"><input type="checkbox" data-midi="enabled" ${midi.enabled ? 'checked' : ''}><span>Listen to MIDI</span></label>
+    ${midi.enabled ? `<div class="grid2">
+      <span>Input</span><select data-midi="input"><option value="all">All inputs${inputs.length ? ` (${inputs.length})` : ' (none connected)'}</option>${inputs.map((n) => `<option${midi.input === n ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>
+      <span>Channel</span><select data-midi="channel"><option value="0">All channels</option>${Array.from({ length: 16 }, (_, i) => `<option value="${i + 1}"${midi.channel === i + 1 ? ' selected' : ''}>${i + 1}</option>`).join('')}</select>
+    </div>
+    <label class="toggle"><input type="checkbox" data-midi="notes" ${midi.notes ? 'checked' : ''}><span>Notes fire cues: note</span> <input type="number" min="0" max="127" data-midi="noteBase" value="${midi.noteBase}" style="width:64px"> <span>= cue 1</span></label>
+    <label class="toggle"><input type="checkbox" data-midi="programChange" ${midi.programChange ? 'checked' : ''}><span>Program Change n fires cue n+1</span></label>
+    <label class="toggle"><input type="checkbox" data-midi="msc" ${midi.msc ? 'checked' : ''}><span>MIDI Show Control: GO [cue], STOP</span></label>
+    <div class="midi-learn">${MIDI_ACTIONS.map(([k, label]) => `<span>${label}</span><span class="learned">${esc(midiDescribe((midi.map || {})[k]))}</span>
+      <span><button class="btn small${midiLearn === k ? ' learning' : ''}" data-learn="${k}">${midiLearn === k ? 'Send a message…' : 'Learn'}</button>${(midi.map || {})[k] ? ` <button class="btn small ghost" data-unlearn="${k}">✕</button>` : ''}</span>`).join('')}</div>
+    <div class="midi-monitor">Last message: ${esc(midiLast || 'none yet')}</div>` : ''}`;
+}
+
+async function saveMidi(patch) {
+  midi = await api.midiSet({ ...midi, ...patch });
+  if (midi.enabled) await startMidi();
+  renderMidiSettings();
+}
+
+function setupMidi() {
+  $('midiSettings').addEventListener('change', (e) => {
+    const k = e.target.dataset.midi;
+    if (!k) return;
+    const v = e.target.type === 'checkbox' ? e.target.checked : ['channel', 'noteBase'].includes(k) ? Number(e.target.value) : e.target.value;
+    saveMidi({ [k]: v });
+  });
+  $('midiSettings').addEventListener('click', (e) => {
+    const learn = e.target.dataset.learn;
+    const unlearn = e.target.dataset.unlearn;
+    if (learn) { midiLearn = midiLearn === learn ? null : learn; renderMidiSettings(); }
+    if (unlearn) { const map = { ...midi.map }; delete map[unlearn]; saveMidi({ map }); }
+  });
+}
+
 // ---------- presenter remote ----------
 let presenter = null;
 
@@ -412,6 +544,7 @@ function renderSettings() {
   renderRemote();
   renderSync();
   renderPresenterSettings();
+  renderMidiSettings();
   $('envInfo').innerHTML = `
     ${(env.apps || []).map((a) => `<div>${esc(a.name)}: ${a.installed ? '<span class="ok">installed</span>' : '<span class="bad">not found</span>'}</div>`).join('')}
     ${IS_MAC ? `<div>Accessibility (needed for WPS Office, and to send slideshows to a chosen output): ${env.accessibility ? '<span class="ok">allowed</span>' : '<span class="bad">not allowed</span> <button class="btn small" id="grantAx">Open settings</button>'}</div>
@@ -898,6 +1031,9 @@ async function init() {
   setupKeyboard();
   setupStageBar();
   setupShowMode();
+  setupMidi();
+  midi = await api.midiGet();
+  startMidi();
   await loadPresenter();
   render();
   renderShowModeIndicators();

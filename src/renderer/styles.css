@@ -115,6 +115,10 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
 .pf-report h4 { margin: 0; font-size: 13px; display: flex; gap: 8px; align-items: center; }
 .pf-report .pf-empty { color: var(--go); font-weight: 600; }
 .showmode-btn.on { background: #3a2f0b; color: #ffd66b; border-color: #6b5410; }
+.midi-learn { display: grid; grid-template-columns: 120px 1fr auto; gap: 6px 10px; align-items: center; }
+.midi-learn .learned { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted); }
+.midi-learn .btn.learning { border-color: var(--armed); color: var(--armed); animation: pulse 1s infinite; }
+.midi-monitor { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted); }
 .presenter-chip { padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; letter-spacing: .08em; border: 1px solid #1d4d33; background: #0f2e1d; color: #6be3a0; cursor: pointer; }
 .presenter-chip.muted { background: #3a2f0b; color: #ffd66b; border-color: #6b5410; }
 .presenter-qr { display: flex; gap: 14px; align-items: center; }
