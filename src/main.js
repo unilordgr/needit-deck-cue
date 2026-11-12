@@ -40,6 +40,7 @@ let follower = null;
 let followers = [];       // names of backups following this machine
 let lastFollowAction = 0; // when the backup last fired/stopped to follow the main (debounces state checks)
 let lastBlackoutSync = 0;
+let lastSlideSync = 0;
 // After the link to the main drops, the backup may be the one on screen. Don't let a restarted main (with
 // nothing live) stop it: hold until the main does something deliberate (any event).
 let followHeld = false;
@@ -266,6 +267,26 @@ function setMessage(msg, level = 'info') {
 
 function cueAutoSlideshow(cue) {
   return cue.autoSlideshow === true || cue.autoSlideshow === false ? cue.autoSlideshow : show.settings.defaultAutoSlideshow;
+}
+
+// ---------- live slide position ----------
+// Asks PowerPoint / Keynote / WPS (Windows) which slide is showing, once a second while their cue is live.
+let positionBusy = false;
+async function pollPosition() {
+  if (positionBusy || !state.live || state.busyCueId || state.live.app === 'pdf') return;
+  positionBusy = true;
+  try {
+    const app = state.live.app;
+    const p = await presenters.position(app).catch(() => null);
+    if (p && state.live && state.live.app === app && (p.slide !== state.liveSlide || p.slides !== state.liveSlides)) {
+      state.liveSlide = p.slide;
+      state.liveSlides = p.slides;
+      state.liveDetail = `slide ${p.slide}/${p.slides}`;
+      broadcast();
+    }
+  } finally {
+    positionBusy = false;
+  }
 }
 
 // ---------- thumbnails ----------
@@ -653,8 +674,10 @@ function onMainState(main) {
     } else if (!main.live && state.live) {
       lastFollowAction = Date.now();
       stopAll();
-    } else if (want && main.live.slide && state.live && state.live.app === 'pdf' && state.liveSlide !== main.live.slide) {
-      presenters.pdfPlayer.goto(main.live.slide);
+    } else if (want && main.live.slide && state.live && state.liveSlide && state.liveSlide !== main.live.slide && Date.now() - lastSlideSync > 2500) {
+      // Exact slide: PDF always; PowerPoint/WPS on Windows and Keynote when they report their position.
+      lastSlideSync = Date.now();
+      presenters.goto(state.live.app, main.live.slide);
     }
   }
   if (!followHeld && prefs.sync.mirrorBlackout && main.blackout !== state.blackout && Date.now() - lastBlackoutSync > 4000) {
@@ -1022,6 +1045,7 @@ app.whenReady().then(() => {
   thumbnailer = createThumbnailer({ cacheDir: userFile('thumbs'), probePdf: preflight.probePdf });
   versions = createVersionWatcher({ getCues: () => show.cues, onChange: onVersions });
   versions.start();
+  setInterval(pollPosition, 1000);
   // While a backup is connected, re-send the state every few seconds so it can correct any drift
   // (e.g. its own clicker moved a slide) even when nothing changes on the main.
   setInterval(() => { if (followers.length && control) control.update(); }, 3000);

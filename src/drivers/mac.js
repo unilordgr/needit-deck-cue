@@ -477,4 +477,62 @@ function close(app, file) {
   return osa(SCRIPTS[app].close, app === 'wps' ? [path.basename(file)] : names(file), 15000);
 }
 
-module.exports = { APPS, PPT_APP_PREFERENCE, isInstalled, needsAccessibility, fire, stop, nav, close };
+// ---------- live slide position ----------
+// "slide/total" while a show is running, "" otherwise. WPS for Mac can't report it (no scripting).
+const PPT_POSITION = `
+if application "Microsoft PowerPoint" is not running then return ""
+tell application "Microsoft PowerPoint"
+	if (count of slide show windows) is 0 then return ""
+	set v to slide show view of slide show window 1
+	set n to 0
+	try
+		set n to current show position of v
+	end try
+	if n is 0 then
+		try
+			set n to slide index of slide of v
+		end try
+	end if
+	set t to 0
+	try
+		set t to count of slides of presentation of slide show window 1
+	on error
+		try
+			set t to count of slides of active presentation
+		end try
+	end try
+	return (n as text) & "/" & (t as text)
+end tell`;
+
+const KN_POSITION = `
+if application "Keynote" is not running then return ""
+tell application "Keynote"
+	if not playing then return ""
+	tell front document
+		return ((slide number of current slide) as text) & "/" & ((count of (slides whose skipped is false)) as text)
+	end tell
+end tell`;
+
+// Keynote can jump during a show (7.1+); PowerPoint for Mac has no reliable way to.
+const KN_GOTO = `
+on run argv
+	tell application "Keynote"
+		if not playing then return "no show"
+		tell front document to set current slide to slide ((item 1 of argv) as integer)
+	end tell
+end run`;
+
+async function position(app) {
+  const script = app === 'powerpoint' ? PPT_POSITION : app === 'keynote' ? KN_POSITION : null;
+  if (!script || !isInstalled(app)) return null;
+  const out = await osa(script, [], 5000).catch(() => '');
+  const m = /^(\d+)\/(\d+)$/.exec(out);
+  return m && Number(m[1]) > 0 ? { slide: Number(m[1]), slides: Number(m[2]) } : null;
+}
+
+function goto(app, n) {
+  if (app !== 'keynote') return Promise.resolve(false);
+  return osa(KN_GOTO, [n], 8000).then(() => true, () => false);
+}
+
+module.exports = { APPS, PPT_APP_PREFERENCE, isInstalled, needsAccessibility, fire, stop, nav, close, position, goto };

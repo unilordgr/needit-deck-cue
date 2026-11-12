@@ -31,5 +31,16 @@ for (const [name, body] of Object.entries(_test.scripts)) {
       console.log(`RUN FAIL   ${name}: ${e.message}`);
     }
   }
+  // The long-running PowerShell used for the once-a-second slide poll.
+  try {
+    const echo = await _test.hostRun("'hello'");
+    const pos = await _test.hostRun(`$env:DC_PROGIDS = 'PowerPoint.Application'\n$progIds = $env:DC_PROGIDS -split ','\n${_test.scripts.POSITION}`);
+    const again = await _test.hostRun("1 + 1");
+    if (echo !== 'hello' || again !== '2') throw new Error(`unexpected output ${JSON.stringify([echo, pos, again])}`);
+    console.log(`host ok     echo, POSITION -> ${JSON.stringify(pos)}, reuse`);
+  } catch (e) {
+    failed = true;
+    console.log(`HOST FAIL   ${e.message}`);
+  }
   process.exit(failed ? 1 : 0);
 })();

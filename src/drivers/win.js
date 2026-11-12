@@ -120,6 +120,69 @@ foreach ($p in @($app.Presentations)) {
   }
 }`;
 
+// "slide/total" while a show is running, "" otherwise.
+const POSITION = `
+$app = Get-App $progIds
+if ($app -and $app.SlideShowWindows.Count -gt 0) {
+  $w = $app.SlideShowWindows.Item(1)
+  "{0}/{1}" -f $w.View.CurrentShowPosition, $w.Presentation.Slides.Count
+}`;
+
+const GOTO = `
+$app = Get-App $progIds
+if (-not $app -or $app.SlideShowWindows.Count -eq 0) { 'no show'; return }
+$app.SlideShowWindows.Item(1).View.GotoSlide([int]$env:DC_SLIDE)`;
+
+// One long-running PowerShell for the once-a-second position poll (starting powershell.exe every second
+// would cost far too much CPU). Each request is one line: the script, base64-encoded, then an end marker.
+const END = '__DECKCUE_END__';
+let host = null;
+let hostBusy = Promise.resolve();
+
+function startHost() {
+  const proc = require('child_process').spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', '-'], { windowsHide: true });
+  const h = { proc, buffer: '', waiters: [] };
+  proc.stdout.setEncoding('utf8');
+  proc.stdout.on('data', (chunk) => {
+    h.buffer += chunk;
+    let i;
+    while ((i = h.buffer.indexOf(END)) >= 0) {
+      const out = h.buffer.slice(0, i);
+      h.buffer = h.buffer.slice(i + END.length).replace(/^\r?\n/, '');
+      const w = h.waiters.shift();
+      if (w) w(out.trim());
+    }
+  });
+  proc.on('exit', () => { if (host === h) host = null; h.waiters.splice(0).forEach((w) => w('')); });
+  proc.stdin.on('error', () => {});
+  return h;
+}
+
+function hostRun(script, timeout = 5000) {
+  const run = () => new Promise((resolve) => {
+    if (!host) host = startHost();
+    const h = host;
+    const timer = setTimeout(() => { h.proc.kill(); resolve(''); }, timeout);
+    h.waiters.push((out) => { clearTimeout(timer); resolve(out); });
+    const encoded = Buffer.from(`$ErrorActionPreference = 'Stop'\ntry {\n${PRELUDE}\n${script}\n} catch { '' }`, 'utf16le').toString('base64');
+    h.proc.stdin.write(`iex ([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${encoded}'))); Write-Output '${END}'\n`);
+  });
+  hostBusy = hostBusy.then(run, run);
+  return hostBusy;
+}
+
+async function position(app) {
+  if (!APPS[app] || !isInstalled(app)) return null;
+  const out = await hostRun(`$env:DC_PROGIDS = '${APPS[app].progIds.join(',')}'\n$progIds = $env:DC_PROGIDS -split ','\n${POSITION}`);
+  const m = /(\d+)\/(\d+)\s*$/.exec(out);
+  return m && Number(m[1]) > 0 ? { slide: Number(m[1]), slides: Number(m[2]) } : null;
+}
+
+function goto(app, n) {
+  if (!APPS[app]) return Promise.resolve(false);
+  return ps(GOTO, env(app, { DC_SLIDE: String(n) }), 10000).then(() => true, () => false);
+}
+
 // Windows device names (\\\\.\\DISPLAY2) with their physical-pixel bounds, read DPI-aware so they
 // line up with Electron's screen.dipToScreenRect().
 const MONITORS = `
@@ -160,6 +223,6 @@ function close(app, file) {
   return ps(CLOSE, env(app, { DC_FILE: file }), 15000);
 }
 
-module.exports = { APPS, PPT_APP_PREFERENCE, isInstalled, needsAccessibility, fire, stop, nav, close };
+module.exports = { APPS, PPT_APP_PREFERENCE, isInstalled, needsAccessibility, fire, stop, nav, close, position, goto };
 // For scripts/check-win-driver.js (CI on a Windows runner).
-module.exports._test = { ps, scripts: { FIRE, STOP, NAV, CLOSE, MONITORS }, PRELUDE };
+module.exports._test = { ps, hostRun, scripts: { FIRE, STOP, NAV, CLOSE, MONITORS, POSITION, GOTO }, PRELUDE };
