@@ -92,6 +92,11 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
 .statusbar b { font-size: 11px; letter-spacing: .1em; margin-right: 6px; }
 .status-live b { color: var(--live); }
 .status-armed b { color: var(--armed); }
+.badge.ver-changed { color: #fff; background: #1f4fa8; border-color: #3b74e0; }
+.badge.ver-newer { color: #000; background: var(--armed); border-color: var(--armed); }
+.version-box { font-size: 12.5px; line-height: 1.45; background: #1b2a44; border: 1px solid #2d4a7a; border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; user-select: text; }
+.version-box.newer { background: #3a2f0b; border-color: #6b5410; }
+.version-box .actions { display: flex; gap: 6px; }
 .badge.pf-ok { color: var(--go); border-color: #1d4d33; }
 .badge.pf-info { color: #9cc0ff; border-color: #2d4a7a; }
 .badge.pf-warn { color: #ffd66b; border-color: #6b5410; background: #2a2208; }

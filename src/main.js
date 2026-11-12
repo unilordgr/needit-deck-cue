@@ -19,6 +19,7 @@ const { createControlServer, localAddresses } = require('./control/server');
 const { createFollower } = require('./control/follower');
 const preflight = require('./preflight');
 const showmode = require('./showmode');
+const { createVersionWatcher } = require('./versions');
 
 let win = null;
 let show = null;
@@ -46,6 +47,7 @@ const state = {
   stageMessage: { text: '', flash: false }, // shown on the stage display
   preflight: {}, // cueId -> { level: ok|info|warn|error, items: [{ level, text }] }
   showMode: false, // show-machine mode (no sleep, notifications quiet)
+  versions: {}, // cueId -> { changedAt, newer: { path, name, mtime } } (see versions.js)
 };
 const blackoutWins = new Map();
 
@@ -63,6 +65,7 @@ function defaultShow() {
       defaultOutput: 'auto',          // 'auto' = let PowerPoint choose, or a display ref {id,label,width,height}
       defaultAutoSlideshow: true,
       timerAutoStart: true,           // start the speaker timer when a cue with a duration fires
+      newerVersions: 'ask',           // a newer version of a cue's file in its folder: 'ask' | 'auto' | 'off'
       pptApp: 'auto',                 // app for .ppt/.pptx: 'auto' (first installed) | 'powerpoint' | 'wps' | 'keynote'
       closePrevious: true,            // close the previous cue's presentation after the new one starts
       refocusAfterFire: false,        // bring Deck Cue back to front after a cue starts
@@ -259,6 +262,37 @@ function cueAutoSlideshow(cue) {
   return cue.autoSlideshow === true || cue.autoSlideshow === false ? cue.autoSlideshow : show.settings.defaultAutoSlideshow;
 }
 
+// ---------- version management ----------
+let versions = null;
+
+function onVersions(snap) {
+  const mode = show.settings.newerVersions || 'ask';
+  const liveId = state.liveCueId;
+  const before = state.versions[liveId];
+  if (liveId && snap[liveId] && snap[liveId].changedAt && (!before || before.changedAt !== snap[liveId].changedAt)) {
+    setMessage(`The live cue's file changed on disk. The show still runs the old version; fire the cue again to load the new one.`, 'warn');
+  }
+  for (const [id, v] of Object.entries(snap)) {
+    if (!v.newer) continue;
+    if (mode === 'off') snap[id] = { ...v, newer: null };
+    else if (mode === 'auto') { useNewerVersion(id); return; } // the swap triggers a fresh snapshot
+  }
+  state.versions = snap;
+  broadcast();
+}
+
+function useNewerVersion(cueId) {
+  const cue = show.cues.find((c) => c.id === cueId);
+  const newer = versions.newerFor(cueId);
+  if (!cue || !newer) return;
+  const old = cue.file ? path.basename(cue.file.path) : '';
+  cue.file = { path: newer.path };
+  dirty = true;
+  autosave(); sendShow(); schedulePreflight();
+  setMessage(`Cue ${show.cues.indexOf(cue) + 1} now uses ${newer.name} (was ${old}).${state.liveCueId === cueId ? ' Fire it again to load it.' : ''}`, 'info');
+  versions.scan();
+}
+
 // ---------- show-machine mode ----------
 async function setShowMode(on) {
   const want = on === undefined ? !state.showMode : !!on;
@@ -405,6 +439,7 @@ async function fireCue(id) {
     const result = await presenters.fire(appName, { file, startSlide: Number(cue.startSlide) || 1, auto, bounds: display ? display.bounds : null });
     if (closePrev && !closeFirst) await presenters.close(prev.app, prev.file).catch(() => {});
     state.live = { cueId: id, app: appName, file };
+    if (versions) versions.clearChanged(id); // the freshly loaded file is the current one
     const minutes = Number(cue.duration) || 0;
     if (minutes > 0 && show.settings.timerAutoStart !== false) {
       state.timer = { duration: minutes * 60000, remaining: minutes * 60000, endsAt: Date.now() + minutes * 60000, running: true };
@@ -695,7 +730,11 @@ function remoteState() {
       const missing = !c.file || !fs.existsSync(c.file.path);
       const st = c.id === state.busyCueId ? 'loading' : c.id === state.liveCueId ? 'live' : nextCue && c.id === nextCue.id ? 'next' : missing ? 'missing' : 'idle';
       const pf = state.preflight[c.id];
-      return { number: i + 1, id: c.id, name: cueName(c), color: c.color || null, state: st, missing, preflight: pf ? pf.level : null };
+      const ver = state.versions[c.id] || {};
+      return {
+        number: i + 1, id: c.id, name: cueName(c), color: c.color || null, state: st, missing,
+        preflight: pf ? pf.level : null, changed: !!ver.changedAt, newer: ver.newer ? ver.newer.name : null,
+      };
     }),
   };
 }
@@ -753,6 +792,9 @@ function setupIpc() {
     try { return await pullShowFromMain(); } catch (e) { return { error: e.message }; }
   });
   ipcMain.handle('preflight:run', () => schedulePreflight(0));
+  ipcMain.handle('version:use', (_e, cueId) => useNewerVersion(cueId));
+  ipcMain.handle('version:ignore', (_e, cueId) => versions.ignoreNewer(cueId));
+  ipcMain.handle('version:clear', (_e, cueId) => versions.clearChanged(cueId));
   ipcMain.handle('showmode:set', (_e, on) => setShowMode(on));
   ipcMain.handle('showmode:readiness', () => showmode.readiness());
   ipcMain.handle('showmode:quitApps', (_e, labels) => showmode.quitApps(labels));
@@ -903,6 +945,8 @@ app.whenReady().then(() => {
   startSync();
   schedulePreflight(1500);
   if (prefs.showMode.autoStart) setShowMode(true);
+  versions = createVersionWatcher({ getCues: () => show.cues, onChange: onVersions });
+  versions.start();
   // While a backup is connected, re-send the state every few seconds so it can correct any drift
   // (e.g. its own clicker moved a slide) even when nothing changes on the main.
   setInterval(() => { if (followers.length && control) control.update(); }, 3000);

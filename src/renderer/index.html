@@ -92,6 +92,7 @@
       </div>
     </div>
     <div id="edShortcutNote" class="note"></div>
+    <div id="edVersion" class="version-box" hidden></div>
     <div class="row col"><span>Preflight <button id="edPreflightRun" class="btn small ghost">Check again</button></span><ul id="edPreflight" class="pf-list"></ul></div>
     <div class="row"><span>Color</span><div id="edColors" class="colors"></div></div>
     <label class="row col"><span>Notes</span><textarea id="edNotes" rows="3"></textarea></label>
@@ -114,6 +115,8 @@
       <h3>Changeover</h3>
       <label class="toggle"><input type="checkbox" id="setClosePrev"><span>Close the previous presentation when the next cue starts</span></label>
       <label class="toggle"><input type="checkbox" id="setBackdrop"><span>Show a black backdrop on the output while switching cues</span></label>
+      <label class="row wide"><span>Newer version of a file in its folder</span>
+        <select id="setNewer"><option value="ask">Show it and ask</option><option value="auto">Switch to it automatically</option><option value="off">Ignore</option></select></label>
       <label class="toggle"><input type="checkbox" id="setTimerAuto"><span>Start the speaker timer when a cue with a timer fires</span></label>
       <label class="toggle"><input type="checkbox" id="setRefocus"><span>Bring Deck Cue back to the front after a cue starts</span></label>
       <h3>Global shortcuts <small>work while the slideshow is in front · need a modifier key or an F-key</small></h3>

@@ -200,6 +200,29 @@ function setupShowMode() {
   };
 }
 
+// ---------- versions ----------
+function verFor(c) { return (runtime.versions || {})[c.id] || null; }
+const timeOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+function verBadge(c) {
+  const v = verFor(c);
+  if (!v) return '';
+  if (v.newer) return `<span class="badge ver-newer" title="Newer version in the folder: ${esc(v.newer.name)}">NEW VERSION</span>`;
+  if (v.changedAt) return `<span class="badge ver-changed" title="The file changed on disk at ${timeOf(v.changedAt)}">UPDATED</span>`;
+  return '';
+}
+function renderVersionBox(c) {
+  const v = verFor(c);
+  const box = $('edVersion');
+  if (!v) { box.hidden = true; return; }
+  box.hidden = false;
+  box.className = `version-box${v.newer ? ' newer' : ''}`;
+  box.innerHTML = v.newer
+    ? `<div><b>Newer version in the folder:</b> ${esc(v.newer.name)} (saved ${timeOf(v.newer.mtime)})</div>
+       <div class="actions"><button class="btn small" data-ver="use">Use it</button><button class="btn small ghost" data-ver="ignore">Ignore</button></div>`
+    : `<div><b>The file changed on disk</b> at ${timeOf(v.changedAt)}.${runtime.liveCueId === c.id ? ' The show still runs the old version; fire the cue again to load the new one.' : ' It will load the new version when fired.'}</div>
+       <div class="actions"><button class="btn small ghost" data-ver="clear">OK</button></div>`;
+}
+
 // ---------- preflight ----------
 const PF_ICON = { ok: '✓', info: '✓', warn: '⚠', error: '✕' };
 function pfFor(c) { return (runtime.preflight || {})[c.id]; }
@@ -265,6 +288,7 @@ function renderGrid() {
     return `<div class="${cls}" data-id="${c.id}" draggable="${!show.settings.locked}" style="--cue-color:${esc(c.color || COLORS[0])}">
       <div class="num">${i + 1}</div>
       <div class="badges">
+        ${verBadge(c)}
         ${pfBadge(c)}
         ${out ? `<span class="badge" title="Output override">${esc(out)}</span>` : ''}
         <span class="badge" title="${auto ? 'Starts the slideshow automatically' : 'Opens without starting the slideshow'}">${auto ? '⛶' : 'open'}</span>
@@ -330,6 +354,7 @@ function renderEditor() {
   note.classList.toggle('bad', bad);
   $('edColors').innerHTML = COLORS.map((col) => `<span class="swatch${(c.color || COLORS[0]) === col ? ' on' : ''}" data-color="${col}" style="background:${col}"></span>`).join('');
   if (document.activeElement !== $('edNotes')) $('edNotes').value = c.notes || '';
+  renderVersionBox(c);
   const pf = pfFor(c);
   $('edPreflight').innerHTML = pf ? pfItemsHtml(pf.items) : '<li class="info">Checking…</li>';
 }
@@ -340,6 +365,7 @@ function renderSettings() {
   $('setPptApp').innerHTML = appOptions(s.pptApp, `Auto: first installed (${appInfo(env.pptApp).name})`);
   $('setClosePrev').checked = !!s.closePrevious;
   $('setTimerAuto').checked = s.timerAutoStart !== false;
+  $('setNewer').value = s.newerVersions || 'ask';
   $('setBackdrop').checked = !!s.backdropDuringChangeover;
   $('setRefocus').checked = !!s.refocusAfterFire;
   $('globalKeys').innerHTML = GLOBAL_ACTIONS.map(([k, label]) => {
@@ -680,6 +706,13 @@ function setupEditor() {
   };
   $('edTest').onclick = () => api.fire(selectedId);
   $('edPreflightRun').onclick = () => api.preflightRun();
+  $('edVersion').onclick = (e) => {
+    const act = e.target.dataset && e.target.dataset.ver;
+    if (act === 'use') api.versionUse(selectedId);
+    else if (act === 'ignore') api.versionIgnore(selectedId);
+    else if (act === 'clear') api.versionClear(selectedId);
+  };
+  $('setNewer').onchange = (e) => { show.settings.newerVersions = e.target.value; commit(); };
   $('preflightBtn').onclick = () => { api.preflightRun(); $('preflightModal').hidden = false; renderPreflightReport(); };
   $('preflightRerun').onclick = () => api.preflightRun();
   $('preflightClose').onclick = () => { $('preflightModal').hidden = true; };
