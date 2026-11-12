@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const invoke = (ch) => (...args) => ipcRenderer.invoke(ch, ...args);
 
 contextBridge.exposeInMainWorld('api', {
+  platform: process.platform,
   getShow: invoke('show:get'),
   updateShow: invoke('show:update'),
   fileCmd: invoke('show:file'),

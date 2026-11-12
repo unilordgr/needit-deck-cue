@@ -30,11 +30,12 @@ body {
 /* top bar */
 .topbar {
   display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px 10px 84px; /* room for traffic lights */
+  padding: 10px 14px;
   background: var(--panel); border-bottom: 1px solid var(--line);
   -webkit-app-region: drag;
 }
 .topbar > * { -webkit-app-region: no-drag; }
+body.mac .topbar { padding-left: 84px; } /* room for the traffic lights */
 .brand { font-weight: 800; letter-spacing: .12em; font-size: 14px; -webkit-app-region: drag; }
 .brand span { color: var(--live); }
 .brand .brand-co { color: var(--muted); font-weight: 600; letter-spacing: .02em; text-transform: lowercase; margin-right: 2px; }

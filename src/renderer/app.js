@@ -41,19 +41,24 @@ function accelFromEvent(e) {
   const key = keyFromCode(e.code);
   if (!key) return null;
   const parts = [];
-  if (e.metaKey) parts.push('Command');
+  if (e.metaKey && IS_MAC) parts.push('Command'); // the Windows key is reserved by the OS
   if (e.ctrlKey) parts.push('Control');
   if (e.altKey) parts.push('Alt');
   if (e.shiftKey) parts.push('Shift');
   parts.push(key);
   return parts.join('+');
 }
+const IS_MAC = api.platform === 'darwin';
+const MOD_TEXT = IS_MAC ? '⌘, ⌃ or ⌥' : 'Ctrl or Alt';
+const PRETTY_WIN = { Control: 'Ctrl', Escape: 'Esc', Return: 'Enter', Up: '↑', Down: '↓', Left: '←', Right: '→' };
 const PRETTY = { Command: '⌘', Control: '⌃', Alt: '⌥', Shift: '⇧', Space: 'Space', Escape: 'Esc', Return: '↩', Up: '↑', Down: '↓', Left: '←', Right: '→' };
 function prettyAccel(a) {
   if (!a) return '';
-  return a.split('+').map((p) => PRETTY[p] || p.replace(/^num/, 'Num ')).join('');
+  const parts = a.split('+');
+  if (!IS_MAC) return parts.map((p) => PRETTY_WIN[p] || p.replace(/^num/, 'Num ')).join('+');
+  return parts.map((p) => PRETTY[p] || p.replace(/^num/, 'Num ')).join('');
 }
-const GLOBAL_BLOCKLIST = ['Command+Q', 'Command+W', 'Command+Tab', 'Command+Space', 'Command+H', 'Command+M'];
+const GLOBAL_BLOCKLIST = ['Command+Q', 'Command+W', 'Command+Tab', 'Command+Space', 'Command+H', 'Command+M', 'Alt+F4', 'Alt+Tab', 'Control+Alt+Delete', 'Control+Escape'];
 function globalAllowed(accel) {
   if (!accel || GLOBAL_BLOCKLIST.includes(accel)) return false;
   const parts = accel.split('+');
@@ -239,8 +244,8 @@ function renderSettings() {
   }).join('');
   $('envInfo').innerHTML = `
     ${(env.apps || []).map((a) => `<div>${esc(a.name)}: ${a.installed ? '<span class="ok">installed</span>' : '<span class="bad">not found</span>'}</div>`).join('')}
-    <div>Accessibility (needed for WPS Office, and to send slideshows to a chosen output): ${env.accessibility ? '<span class="ok">allowed</span>' : '<span class="bad">not allowed</span> <button class="btn small" id="grantAx">Open settings</button>'}</div>
-    <div style="color:var(--muted);font-size:12px">The first time a cue fires, macOS asks to let Deck Cue control your presentation app. Click OK.</div>`;
+    ${IS_MAC ? `<div>Accessibility (needed for WPS Office, and to send slideshows to a chosen output): ${env.accessibility ? '<span class="ok">allowed</span>' : '<span class="bad">not allowed</span> <button class="btn small" id="grantAx">Open settings</button>'}</div>
+    <div style="color:var(--muted);font-size:12px">The first time a cue fires, macOS asks to let Deck Cue control your presentation app. Click OK.</div>` : ''}`;
   const g = $('grantAx');
   if (g) g.onclick = () => api.requestAccessibility();
 }
@@ -402,7 +407,7 @@ function setupEditor() {
     const accel = c.shortcut && c.shortcut.accel;
     if (e.target.checked && accel && !globalAllowed(accel)) {
       e.target.checked = false;
-      flash('Global shortcuts need ⌘, ⌃ or ⌥, or an F-key, so they don’t block keys the slideshow uses.', 'warn');
+      flash(`Global shortcuts need ${MOD_TEXT}, or an F-key, so they don’t block keys the slideshow uses.`, 'warn');
       return;
     }
     updateSelected({ shortcut: accel ? { accel, global: e.target.checked } : null });
@@ -459,7 +464,7 @@ function handleCapture(e) {
   const accel = accelFromEvent(e);
   if (!accel) return;
   if (capture.kind === 'global') {
-    if (!globalAllowed(accel)) { flash(`${prettyAccel(accel)} can’t be global. Use ⌘, ⌃ or ⌥ with a key, or an F-key.`, 'warn'); return; }
+    if (!globalAllowed(accel)) { flash(`${prettyAccel(accel)} can’t be global. Use ${MOD_TEXT} with a key, or an F-key.`, 'warn'); return; }
     show.settings.globalKeys[capture.key] = accel;
   } else {
     if (RESERVED_LOCAL.includes(accel)) { flash(`${prettyAccel(accel)} is used by Deck Cue itself (GO, Stop, slides, Blackout).`, 'warn'); return; }
@@ -509,6 +514,7 @@ function setupKeyboard() {
 
 // ---------- boot ----------
 async function init() {
+  document.body.classList.add(IS_MAC ? 'mac' : 'win');
   env = await api.env();
   displays = await api.displays();
   const r = await api.getShow();

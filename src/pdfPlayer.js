@@ -78,6 +78,10 @@ async function show(file, { startPage = 1, bounds = null } = {}) {
 // clicker's keys never reach the player. macOS 14+ ignores an app activating itself, so reopen our
 // own bundle through LaunchServices (like a Dock click) and fall back to app.focus().
 function activateApp() {
+  if (process.platform !== 'darwin') {
+    app.focus({ steal: true });
+    return Promise.resolve();
+  }
   const bundle = process.execPath.split('/Contents/MacOS/')[0];
   return new Promise((resolve) => {
     execFile('open', ['-a', bundle], { timeout: 5000 }, (err) => {

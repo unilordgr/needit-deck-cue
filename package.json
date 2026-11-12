@@ -6,7 +6,9 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --mac"
+    "dist": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac"
   },
   "build": {
     "appId": "com.needitcreative.deckcue",
@@ -25,7 +27,33 @@
       "!node_modules/pdfjs-dist/{legacy,web,types,image_decoders,wasm}/**",
       "!node_modules/pdfjs-dist/build/{pdf.mjs,pdf.worker.mjs,pdf.sandbox*}",
       "!node_modules/pdfjs-dist/**/*.map"
-    ]
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "needit-Deck-Cue-Setup-${version}.${ext}",
+      "shortcutName": "needit Deck Cue"
+    },
+    "portable": {
+      "artifactName": "needit-Deck-Cue-Portable-${version}.${ext}"
+    }
   },
   "devDependencies": {
     "electron": "^33.2.0",

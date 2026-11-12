@@ -2,6 +2,13 @@ const APP_NAME = 'needit Deck Cue';
 const { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Menu, systemPreferences, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+
+const IS_MAC = process.platform === 'darwin';
+// Windows portable build: keep settings and autosave next to the .exe so the show travels with it.
+if (process.env.PORTABLE_EXECUTABLE_DIR) {
+  app.setPath('userData', path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'needit Deck Cue Data'));
+}
+
 const presenters = require('./presenters');
 
 let win = null;
@@ -13,6 +20,10 @@ const state = { liveCueId: null, live: null, armedCueId: null, busyCueId: null, 
 const blackoutWins = new Map();
 
 const userFile = (name) => path.join(app.getPath('userData'), name);
+
+// Accessibility (UI scripting) only exists on macOS; Windows drivers use COM and need no permission.
+const axTrusted = (prompt = false) => (IS_MAC ? systemPreferences.isTrustedAccessibilityClient(prompt) : true);
+const MOD_TEXT = IS_MAC ? '⌘, ⌃ or ⌥' : 'Ctrl or Alt';
 
 function defaultShow() {
   return {
@@ -223,13 +234,17 @@ async function fireCue(id) {
     display = resolveOutput(outRef);
     if (!display) warning = `Output “${outRef.label}” is not connected, so PowerPoint chose the display.`;
   }
-  if (appName === 'wps' && !systemPreferences.isTrustedAccessibilityClient(false)) {
-    systemPreferences.isTrustedAccessibilityClient(true);
+  if (presenters.needsAccessibility(appName, false) && !axTrusted()) {
+    axTrusted(true);
     return setMessage('WPS Office is controlled through its menus, so Deck Cue needs Accessibility permission (System Settings › Privacy & Security › Accessibility). Then fire the cue again.', 'error');
   }
-  if (display && auto && appName === 'powerpoint' && !systemPreferences.isTrustedAccessibilityClient(false)) {
-    systemPreferences.isTrustedAccessibilityClient(true);
+  if (display && auto && presenters.needsAccessibility(appName, true) && !axTrusted()) {
+    axTrusted(true);
     warning = 'To send slideshows to a chosen output, allow Deck Cue under Privacy & Security › Accessibility. Using PowerPoint’s default display for now.';
+    display = null;
+  }
+  if (display && auto && appName === 'wps' && !IS_MAC) {
+    warning = 'WPS Office on Windows chooses its own display. Set it in WPS under Slide Show › Set Up Show.';
     display = null;
   }
   if (display && appName === 'keynote') {
@@ -304,7 +319,7 @@ function registerShortcuts() {
   const used = new Set();
   const reg = (accel, key, fn) => {
     if (!accel) return;
-    if (!globalAllowed(accel)) { shortcutReport[key] = 'Global shortcuts need ⌘, ⌃ or ⌥, or an F-key'; return; }
+    if (!globalAllowed(accel)) { shortcutReport[key] = `Global shortcuts need ${MOD_TEXT}, or an F-key`; return; }
     if (used.has(accel)) { shortcutReport[key] = 'Duplicate shortcut'; return; }
     let ok = false;
     try { ok = globalShortcut.register(accel, fn); } catch { ok = false; }
@@ -342,7 +357,7 @@ function broadcast() {
 function updateTitle() {
   if (!win) return;
   win.setTitle(`${APP_NAME} — ${showPath ? path.basename(showPath) : show.showName}${dirty ? ' •' : ''}`);
-  win.setDocumentEdited(dirty);
+  if (IS_MAC) win.setDocumentEdited(dirty);
 }
 
 function setupIpc() {
@@ -371,13 +386,15 @@ function setupIpc() {
   });
   ipcMain.handle('files:reveal', (_e, p) => shell.showItemInFolder(p));
   ipcMain.handle('env:status', () => ({
-    accessibility: systemPreferences.isTrustedAccessibilityClient(false),
+    platform: process.platform,
+    accessibility: IS_MAC ? axTrusted() : null,
     apps: Object.entries(presenters.APPS).map(([id, a]) => ({ id, name: a.name, short: a.short, installed: presenters.isInstalled(id) })),
     pptApp: presenters.pptApp(show.settings.pptApp),
     supportedExt: presenters.SUPPORTED_EXT,
   }));
   ipcMain.handle('env:requestAccessibility', () => {
-    systemPreferences.isTrustedAccessibilityClient(true);
+    if (!IS_MAC) return;
+    axTrusted(true);
     shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
   });
 }
@@ -385,13 +402,14 @@ function setupIpc() {
 function buildMenu() {
   const send = (cmd) => () => fileCommand(cmd);
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { role: 'appMenu' },
+    ...(IS_MAC ? [{ role: 'appMenu' }] : []),
     { label: 'File', submenu: [
       { label: 'New Show', accelerator: 'Command+N', click: send('new') },
       { label: 'Open Show…', accelerator: 'Command+O', click: send('open') },
       { type: 'separator' },
       { label: 'Save', accelerator: 'Command+S', click: send('save') },
       { label: 'Save As…', accelerator: 'Shift+Command+S', click: send('saveAs') },
+      ...(IS_MAC ? [] : [{ type: 'separator' }, { role: 'quit' }]),
     ] },
     { role: 'editMenu' },
     { label: 'Show', submenu: [
@@ -407,7 +425,7 @@ function buildMenu() {
 function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 900, minHeight: 560, backgroundColor: '#0e1014', title: APP_NAME,
-    titleBarStyle: 'hiddenInset',
+    ...(IS_MAC ? { titleBarStyle: 'hiddenInset' } : { autoHideMenuBar: true }),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));

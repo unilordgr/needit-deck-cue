@@ -30,6 +30,27 @@ Deck Cue detects which apps are installed (⚙︎ Settings › System lists them
 - WPS can't close a deck while a slideshow is running. With *Close the previous presentation* on, Deck Cue closes the old deck *before* starting the next one, so the editor shows for a moment during the change. Turn on *black backdrop* in Settings to hide it on the output.
 - Don't leave a dialog open in WPS (Save, Recover, etc.). Deck Cue can't click Play while one is showing.
 
+## Windows
+
+Deck Cue also runs on Windows 10/11 (x64). There it controls **PowerPoint** and **WPS Office** through COM automation, using the built-in Windows PowerShell; no extra permissions are needed. PDFs use the same built-in player as on the Mac. Keynote doesn't exist on Windows.
+
+There are two builds:
+- **Installer**: `needit-Deck-Cue-Setup-<version>.exe`. Installs normally, with a Start menu shortcut.
+- **Portable**: `needit-Deck-Cue-Portable-<version>.exe`. Nothing to install, so it can run from a USB stick. Its settings and autosave are kept in a `needit Deck Cue Data` folder next to the `.exe`.
+
+**Choosing the output on Windows**
+- *PowerPoint*: Deck Cue sets PowerPoint's slide-show monitor (`DisplayMonitor` in `HKCU\Software\Microsoft\Office\16.0\PowerPoint\Options`) to the cue's output before starting the show.
+- *WPS Office*: WPS picks its own display. Set it in WPS under *Slide Show › Set Up Show*.
+- *PDF*: goes to the chosen output directly.
+
+**Status:** the Windows build has **not yet been tested with PowerPoint or WPS** on a real PC. CI checks that every Windows script parses, and runs the ones that work without PowerPoint (detect running apps, list monitors). Rehearse before a show.
+
+## Building
+
+Windows builds can't be made on an Apple Silicon Mac, so GitHub Actions makes them (`.github/workflows/build.yml`):
+1. Open *Actions › Build › Run workflow* (or push a `v*` tag).
+2. Download `needit-Deck-Cue-windows` (installer + portable) or `needit-Deck-Cue-mac` from the finished run.
+
 ## Run
 
 ```bash
