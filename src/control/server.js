@@ -12,6 +12,9 @@
 //        GET  /api/cue/<ref>/file             the cue's PDF (for stage display previews)
 //        GET  /api/cue/<ref>/thumb            first-slide thumbnail image
 //        GET  /stage                           stage display / confidence monitor page
+//        GET  /remote                          presenter phone remote (NEXT / PREV, PIN protected)
+//        POST /api/presenter/check | next | prev   with header X-Presenter-Pin (5 wrong PINs: 1 min lockout)
+//        POST /api/presenter/mute[?state=on|off]   operator: pause the presenter remote
 //        GET  /api/show                        the show file (cues and settings), for a backup to copy
 // WS     /api/ws                          sends {type:"state", state} on connect and on every change, and
 //                                         {type:"event", event} the moment an action happens (fire, stop,
@@ -42,6 +45,10 @@ const STATIC = {
   '/stage/': [path.join(STAGE_DIR, 'index.html'), 'text/html; charset=utf-8'],
   '/stage/stage.js': [path.join(STAGE_DIR, 'stage.js'), 'text/javascript; charset=utf-8'],
   '/stage/stage.css': [path.join(STAGE_DIR, 'stage.css'), 'text/css; charset=utf-8'],
+  '/remote': [path.join(__dirname, '..', 'remote', 'index.html'), 'text/html; charset=utf-8'],
+  '/remote/': [path.join(__dirname, '..', 'remote', 'index.html'), 'text/html; charset=utf-8'],
+  '/remote/remote.js': [path.join(__dirname, '..', 'remote', 'remote.js'), 'text/javascript; charset=utf-8'],
+  '/remote/remote.css': [path.join(__dirname, '..', 'remote', 'remote.css'), 'text/css; charset=utf-8'],
   '/stage/pdf.min.mjs': [path.join(PDFJS_DIR, 'build', 'pdf.min.mjs'), 'text/javascript; charset=utf-8'],
   '/stage/pdf.worker.min.mjs': [path.join(PDFJS_DIR, 'build', 'pdf.worker.min.mjs'), 'text/javascript; charset=utf-8'],
 };
@@ -54,6 +61,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
   let status = { http: 'off', osc: 'off' };
   let lastOsc = new Map(); // address -> last sent value, so feedback only goes out on change
   const oscRequesters = new Map(); // "host:port" -> expiry time
+  const pinFailures = new Map(); // remote address -> { count, until }
 
   function setStatus(patch) {
     status = { ...status, ...patch };
@@ -75,6 +83,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
       case 'timer': return actions.timer(arg.cmd, arg.seconds);
       case 'message': return actions.stageMessage(arg.text, arg.flash);
       case 'showmode': return actions.showMode(arg);
+      case 'presenter-mute': return actions.presenterMute(arg);
       default: throw Object.assign(new Error(`Unknown action ${action}`), { code: 404 });
     }
   }
@@ -104,6 +113,11 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     if (a === 'timer' && ['start', 'pause', 'reset', 'set', 'add'].includes(b) && !c) return { action: 'timer', arg: { cmd: b, seconds: query.get('seconds') } };
     if (a === 'message' && !b) return { action: 'message', arg: { text: query.get('text') || '', flash: ['1', 'true', 'on'].includes(query.get('flash')) } };
     if (a === 'message' && b === 'clear' && !c) return { action: 'message', arg: { text: '', flash: false } };
+    if (a === 'presenter' && ['check', 'next', 'prev'].includes(b) && !c) return { presenter: b };
+    if (a === 'presenter' && b === 'mute' && !c) {
+      const st = query.get('state');
+      return { action: 'presenter-mute', arg: st === 'on' ? true : st === 'off' ? false : undefined };
+    }
     if (a === 'showmode' && !b) {
       const st = query.get('state');
       return { action: 'showmode', arg: st === 'on' ? true : st === 'off' ? false : undefined };
@@ -126,6 +140,20 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     if (!r) return send(res, 404, { ok: false, error: 'Not found' });
     if (r.state) return send(res, 200, getState());
     if (r.show) return send(res, 200, getShow());
+    if (r.presenter) {
+      const who = req.socket.remoteAddress || '?';
+      const f = pinFailures.get(who);
+      if (f && f.until > Date.now()) return send(res, 429, { ok: false, error: 'Too many wrong PINs. Wait a minute.' });
+      const result = actions.presenter(r.presenter, req.headers['x-presenter-pin'] || '');
+      if (result.code === 403) {
+        // Count wrong PINs within a minute; the fifth locks this device out for a minute.
+        const now = Date.now();
+        const recent = f && now - f.first < 60000;
+        const count = recent ? f.count + 1 : 1;
+        pinFailures.set(who, { count, first: recent ? f.first : now, until: count >= 5 ? now + 60000 : 0 });
+      } else if (result.ok) pinFailures.delete(who);
+      return send(res, result.code || 200, result);
+    }
     if (r.thumb) {
       try {
         const t = actions.cueThumb(r.thumb);

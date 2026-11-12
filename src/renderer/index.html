@@ -28,6 +28,7 @@
   <section class="statusbar">
     <div class="status-live"><b>LIVE</b> <span id="liveText">—</span></div>
     <div class="status-armed"><b>NEXT</b> <span id="armedText">—</span></div>
+    <button id="presenterChip" class="presenter-chip" hidden title="Presenter phone remote: click to pause or allow">PRESENTER</button>
     <div id="showModeBadge" class="showmode-badge" hidden>SHOW MODE</div>
     <div id="syncBadge" class="sync-badge" hidden></div>
     <div id="message" class="message" hidden></div>
@@ -81,6 +82,7 @@
     <label class="row"><span>Start slide</span><input id="edStart" type="number" min="1" value="1"></label>
     <label class="row"><span>Timer (min)</span><input id="edDuration" type="number" min="0" step="0.5" placeholder="No timer"></label>
     <label class="row"><span>Output</span><select id="edOutput"></select></label>
+    <label class="toggle small" style="margin-left:90px"><input type="checkbox" id="edPresenter"><span>Presenter remote can change slides</span></label>
     <div class="row">
       <span>Shortcut</span>
       <div class="shortcut-box">
@@ -121,6 +123,8 @@
       <label class="toggle"><input type="checkbox" id="setRefocus"><span>Bring Deck Cue back to the front after a cue starts</span></label>
       <h3>Global shortcuts <small>work while the slideshow is in front · need a modifier key or an F-key</small></h3>
       <div class="global-keys" id="globalKeys"></div>
+      <h3>Presenter remote <small>speakers change slides from their phone · per computer</small></h3>
+      <div id="presenterSettings" class="remote"></div>
       <h3>Main / backup <small>a backup computer follows the main one · per computer</small></h3>
       <div id="syncSettings" class="remote"></div>
       <h3>Remote control <small>Bitfocus Companion, Stream Deck, OSC · per computer</small></h3>

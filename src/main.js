@@ -32,7 +32,9 @@ const DEFAULT_CONTROL = { enabled: true, allowNetwork: false, httpPort: 9640, os
 // Main/backup: a backup follows the main machine's cues, slides, blackout, timer and messages.
 const DEFAULT_SYNC = { role: 'standalone', mainHost: '', mainPort: 9640, mirrorBlackout: true, mirrorTimer: true };
 const DEFAULT_SHOWMODE = { autoStart: false };
-let prefs = { control: { ...DEFAULT_CONTROL }, sync: { ...DEFAULT_SYNC }, showMode: { ...DEFAULT_SHOWMODE } };
+const newPin = () => String(Math.floor(1000 + Math.random() * 9000));
+const DEFAULT_PRESENTER = { enabled: false, pin: '' };
+let prefs = { control: { ...DEFAULT_CONTROL }, sync: { ...DEFAULT_SYNC }, showMode: { ...DEFAULT_SHOWMODE }, presenter: { ...DEFAULT_PRESENTER } };
 let control = null;
 let follower = null;
 let followers = [];       // names of backups following this machine
@@ -48,6 +50,7 @@ const state = {
   stageMessage: { text: '', flash: false }, // shown on the stage display
   preflight: {}, // cueId -> { level: ok|info|warn|error, items: [{ level, text }] }
   showMode: false, // show-machine mode (no sleep, notifications quiet)
+  presenterMuted: false, // operator paused the presenter phone remote
   versions: {}, // cueId -> { changedAt, newer: { path, name, mtime } } (see versions.js)
 };
 const blackoutWins = new Map();
@@ -104,7 +107,9 @@ function loadInitial() {
     control: { ...DEFAULT_CONTROL, ...(saved.control || {}) },
     sync: { ...DEFAULT_SYNC, ...(saved.sync || {}) },
     showMode: { ...DEFAULT_SHOWMODE, ...(saved.showMode || {}) },
+    presenter: { ...DEFAULT_PRESENTER, ...(saved.presenter || {}) },
   };
+  if (!prefs.presenter.pin) prefs.presenter.pin = newPin();
   const auto = readJSON(userFile('autosave.deckcue'));
   show = normalizeShow(auto || defaultShow());
   showPath = saved.showPath && fs.existsSync(saved.showPath) ? saved.showPath : null;
@@ -310,6 +315,33 @@ function useNewerVersion(cueId) {
   autosave(); sendShow(); schedulePreflight();
   setMessage(`Cue ${show.cues.indexOf(cue) + 1} now uses ${newer.name} (was ${old}).${state.liveCueId === cueId ? ' Fire it again to load it.' : ''}`, 'info');
   versions.scan();
+}
+
+// ---------- presenter remote ----------
+function presenterAction(kind, pin) {
+  const p = prefs.presenter;
+  if (!p.enabled) return { ok: false, code: 409, error: 'Presenter remote is off.' };
+  if (String(pin) !== String(p.pin)) return { ok: false, code: 403, error: 'Wrong PIN.' };
+  if (kind === 'check') return { ok: true };
+  if (state.presenterMuted) return { ok: false, code: 409, error: 'Paused by the operator.' };
+  const liveCue = state.liveCueId && show.cues.find((c) => c.id === state.liveCueId);
+  if (!liveCue) return { ok: false, code: 409, error: 'Nothing is live.' };
+  if (liveCue.presenterControl === false) return { ok: false, code: 409, error: 'The operator controls this cue.' };
+  navSlide(kind === 'next' ? 'next' : 'previous');
+  return { ok: true };
+}
+
+function setPresenterMuted(on) {
+  state.presenterMuted = on === undefined ? !state.presenterMuted : !!on;
+  broadcast();
+}
+
+async function presenterInfo() {
+  const host = localAddresses()[0] || '127.0.0.1';
+  const url = `http://${host}:${prefs.control.httpPort}/remote`;
+  const QRCode = require('qrcode');
+  const qr = await QRCode.toDataURL(`${url}?pin=${prefs.presenter.pin}`, { margin: 1, width: 220 });
+  return { ...prefs.presenter, url, qr, networkOk: prefs.control.allowNetwork };
 }
 
 // ---------- show-machine mode ----------
@@ -735,11 +767,13 @@ function remoteState() {
       slide: state.liveSlide || null,
       slides: state.liveSlides || null,
       notes: liveCue.notes || '',
+      presenterAllowed: liveCue.presenterControl !== false,
       // PDF cues can be previewed on the stage display.
       file: state.live && state.live.app === 'pdf' ? `/api/cue/${encodeURIComponent(liveCue.id)}/file` : null,
     } : null,
     role: prefs.sync.role,
     showMode: state.showMode,
+    presenter: { enabled: !!prefs.presenter.enabled, muted: !!state.presenterMuted },
     timer: { duration: state.timer.duration, remaining: timerRemaining(), running: state.timer.running, endsAt: state.timer.endsAt },
     stageMessage: state.stageMessage,
     next: ref(nextCue),
@@ -813,6 +847,17 @@ function setupIpc() {
   });
   ipcMain.handle('preflight:run', () => schedulePreflight(0));
   ipcMain.handle('thumbs:get', () => thumbs);
+  ipcMain.handle('presenter:get', () => presenterInfo());
+  ipcMain.handle('presenter:set', async (_e, patch) => {
+    prefs.presenter = { ...prefs.presenter, ...patch };
+    if (patch.newPin) { prefs.presenter.pin = newPin(); delete prefs.presenter.newPin; }
+    // Phones are other devices: the remote needs network access.
+    if (prefs.presenter.enabled && !prefs.control.allowNetwork) { prefs.control.allowNetwork = true; startControl(); }
+    autosave();
+    broadcast();
+    return presenterInfo();
+  });
+  ipcMain.handle('presenter:mute', (_e, on) => setPresenterMuted(on));
   ipcMain.handle('version:use', (_e, cueId) => useNewerVersion(cueId));
   ipcMain.handle('version:ignore', (_e, cueId) => versions.ignoreNewer(cueId));
   ipcMain.handle('version:clear', (_e, cueId) => versions.clearChanged(cueId));
@@ -949,6 +994,8 @@ app.whenReady().then(() => {
       timer: timerCommand,
       stageMessage: setStageMessage,
       showMode: (on) => setShowMode(on),
+      presenter: presenterAction,
+      presenterMute: (on) => setPresenterMuted(on),
       cueThumb: (ref) => {
         const t = thumbs[cueByRef(ref).id];
         const m = t && /^data:([^;]+);base64,(.*)$/.exec(t);

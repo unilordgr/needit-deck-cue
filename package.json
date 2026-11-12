@@ -62,6 +62,7 @@
   "author": "needit Creative",
   "dependencies": {
     "pdfjs-dist": "^4.10.38",
+    "qrcode": "^1.5.4",
     "ws": "^8.18.0"
   }
 }

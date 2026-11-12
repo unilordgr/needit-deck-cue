@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#050608">
+  <title>Presenter · needit Deck Cue</title>
+  <link rel="stylesheet" href="/remote/remote.css">
+</head>
+<body>
+  <section id="login" class="login" hidden>
+    <h1>Presenter remote</h1>
+    <p>Enter the PIN from the AV operator.</p>
+    <input id="pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="one-time-code" placeholder="PIN">
+    <button id="loginBtn" class="big">Connect</button>
+    <div id="loginError" class="error"></div>
+  </section>
+
+  <section id="remote" class="remote" hidden>
+    <div id="message" class="message" hidden></div>
+    <header>
+      <div><span class="pill">LIVE</span> <span id="liveName">Standby</span></div>
+      <div id="timer" class="timer">--:--</div>
+    </header>
+    <div id="preview" class="preview"><div id="previewText" class="preview-text">Standby</div></div>
+    <div class="slide" id="slide"></div>
+    <div id="notice" class="notice" hidden></div>
+    <div class="buttons">
+      <button id="prev" class="nav prev">◀</button>
+      <button id="next" class="nav next">NEXT ▶</button>
+    </div>
+  </section>
+  <div id="conn" class="conn"></div>
+  <script type="module" src="/remote/remote.js"></script>
+</body>
+</html>

@@ -128,6 +128,34 @@ function appOptions(current, autoLabel, isPdf = false) {
     .join('');
 }
 
+// ---------- presenter remote ----------
+let presenter = null;
+
+function renderPresenterChip() {
+  const chip = $('presenterChip');
+  const enabled = presenter ? presenter.enabled : false;
+  chip.hidden = !enabled;
+  const muted = !!runtime.presenterMuted;
+  chip.textContent = muted ? 'PRESENTER PAUSED' : 'PRESENTER ▶';
+  chip.classList.toggle('muted', muted);
+}
+
+function renderPresenterSettings() {
+  const box = $('presenterSettings');
+  if (!presenter) { box.textContent = 'Loading…'; return; }
+  const p = presenter;
+  box.innerHTML = `
+    <label class="toggle"><input type="checkbox" data-pr="enabled" ${p.enabled ? 'checked' : ''}><span>Allow presenters to change slides from their phone</span></label>
+    ${p.enabled ? `<div class="presenter-qr"><img src="${p.qr}" alt="QR code for the presenter remote">
+      <div><div>Scan, or open <b>${esc(p.url)}</b></div><div>PIN <span class="pin">${esc(p.pin)}</span> <button class="btn small ghost" data-pr="newPin">New PIN</button></div>
+      <div class="note" style="margin:0">Only NEXT and PREV. Pause it any time with the PRESENTER chip in the status bar; untick a cue's “Presenter remote can change slides” to keep it for yourself.</div></div></div>` : ''}`;
+}
+
+async function loadPresenter() {
+  presenter = await api.presenterGet();
+  renderPresenterChip();
+}
+
 // ---------- show-machine mode ----------
 let showModeInfo = null; // { active, quietOk, items, apps }
 let showModeCfg = null;
@@ -340,6 +368,7 @@ function renderEditor() {
   if (document.activeElement !== $('edStart')) $('edStart').value = c.startSlide || 1;
   if (document.activeElement !== $('edDuration')) $('edDuration').value = c.duration || '';
   $('edOutput').innerHTML = outputOptions(c.output || 'default', true);
+  $('edPresenter').checked = c.presenterControl !== false;
   const sc = c.shortcut && c.shortcut.accel;
   const btn = $('edShortcut');
   if (!(capture && capture.kind === 'cue')) { btn.textContent = sc ? prettyAccel(sc) : 'Click to set'; btn.classList.remove('capturing'); }
@@ -382,6 +411,7 @@ function renderSettings() {
   }).join('');
   renderRemote();
   renderSync();
+  renderPresenterSettings();
   $('envInfo').innerHTML = `
     ${(env.apps || []).map((a) => `<div>${esc(a.name)}: ${a.installed ? '<span class="ok">installed</span>' : '<span class="bad">not found</span>'}</div>`).join('')}
     ${IS_MAC ? `<div>Accessibility (needed for WPS Office, and to send slideshows to a chosen output): ${env.accessibility ? '<span class="ok">allowed</span>' : '<span class="bad">not allowed</span> <button class="btn small" id="grantAx">Open settings</button>'}</div>
@@ -689,6 +719,7 @@ function setupEditor() {
   $('edAuto').onchange = (e) => updateSelected({ autoSlideshow: e.target.value === 'on' ? true : e.target.value === 'off' ? false : null });
   $('edStart').oninput = (e) => updateSelected({ startSlide: Math.max(1, parseInt(e.target.value, 10) || 1) });
   $('edDuration').oninput = (e) => updateSelected({ duration: Math.max(0, parseFloat(e.target.value) || 0) || null });
+  $('edPresenter').onchange = (e) => updateSelected({ presenterControl: e.target.checked });
   $('edOutput').onchange = (e) => updateSelected({ output: outputFromValue(e.target.value, cueById(selectedId).output) });
   $('edNotes').oninput = (e) => updateSelected({ notes: e.target.value });
   $('edColors').onclick = (e) => { const s = e.target.closest('[data-color]'); if (s) updateSelected({ color: s.dataset.color }); };
@@ -738,9 +769,21 @@ function setupEditor() {
     env = await api.env();
     remote = await api.controlGet();
     sync = await api.syncGet();
+    presenter = await api.presenterGet();
     $('settings').hidden = false;
     renderSettings();
   };
+  $('presenterSettings').addEventListener('change', async (e) => {
+    if (e.target.dataset.pr === 'enabled') {
+      presenter = await api.presenterSet({ enabled: e.target.checked });
+      remote = await api.controlGet();
+      renderPresenterSettings(); renderRemote(); renderPresenterChip();
+    }
+  });
+  $('presenterSettings').addEventListener('click', async (e) => {
+    if (e.target.dataset.pr === 'newPin') { presenter = await api.presenterSet({ newPin: true }); renderPresenterSettings(); }
+  });
+  $('presenterChip').onclick = () => api.presenterMute();
   $('syncSettings').addEventListener('change', (e) => {
     const key = e.target.dataset.sync;
     if (!key) return;
@@ -855,6 +898,7 @@ async function init() {
   setupKeyboard();
   setupStageBar();
   setupShowMode();
+  await loadPresenter();
   render();
   renderShowModeIndicators();
 
@@ -864,6 +908,7 @@ async function init() {
     renderStatus();
     renderPreflightButton();
     renderShowModeIndicators();
+    renderPresenterChip();
     if (selectedId) renderEditor();
     if (!$('preflightModal').hidden) renderPreflightReport();
     tickTimer();
