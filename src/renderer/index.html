@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>needit Deck Cue</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-co">needit</span> DECK <span>CUE</span></div>
+    <input id="showName" class="show-name" spellcheck="false" title="Show name">
+    <div class="spacer"></div>
+    <label class="field">
+      <span>Output</span>
+      <select id="defaultOutput" title="Default display for slideshows"></select>
+    </label>
+    <button id="identifyBtn" class="btn ghost" title="Show a number on every display">Identify</button>
+    <label class="toggle" title="New cues and cues set to 'Default' start the slideshow automatically">
+      <input type="checkbox" id="defaultAuto"><span>Auto fullscreen</span>
+    </label>
+    <button id="lockBtn" class="btn ghost" title="Lock editing (cues can still be fired)">🔓 Unlocked</button>
+    <button id="settingsBtn" class="btn ghost" title="Settings">⚙︎</button>
+  </header>
+
+  <section class="statusbar">
+    <div class="status-live"><b>LIVE</b> <span id="liveText">—</span></div>
+    <div class="status-armed"><b>NEXT</b> <span id="armedText">—</span></div>
+    <div id="message" class="message" hidden></div>
+  </section>
+
+  <main id="grid" class="grid"></main>
+
+  <footer class="transport">
+    <button id="goBtn" class="btn go">GO <small>Space</small></button>
+    <button id="prevBtn" class="btn">◀ Slide <small>←</small></button>
+    <button id="nextBtn" class="btn">Slide ▶ <small>→</small></button>
+    <div class="spacer"></div>
+    <button id="blackoutBtn" class="btn blackout">BLACKOUT <small>B</small></button>
+    <button id="stopBtn" class="btn stop">STOP <small>Esc</small></button>
+  </footer>
+
+  <aside id="editor" class="editor" hidden>
+    <div class="editor-head">
+      <h2>Cue <span id="edNumber"></span></h2>
+      <button id="edClose" class="btn ghost small">✕</button>
+    </div>
+    <label class="row"><span>Label</span><input id="edLabel" placeholder="Uses file name"></label>
+    <div class="row">
+      <span>File</span>
+      <div class="file-box">
+        <div id="edFile" class="file-path"></div>
+        <div class="file-actions">
+          <button id="edPick" class="btn small">Choose…</button>
+          <button id="edReveal" class="btn small ghost">Show in Finder</button>
+        </div>
+      </div>
+    </div>
+    <label class="row"><span>Open with</span>
+      <select id="edApp"></select>
+    </label>
+    <label class="row"><span>Fullscreen</span>
+      <select id="edAuto">
+        <option value="default">Default</option>
+        <option value="on">Start slideshow</option>
+        <option value="off">Just open</option>
+      </select>
+    </label>
+    <label class="row"><span>Start slide</span><input id="edStart" type="number" min="1" value="1"></label>
+    <label class="row"><span>Output</span><select id="edOutput"></select></label>
+    <div class="row">
+      <span>Shortcut</span>
+      <div class="shortcut-box">
+        <button id="edShortcut" class="btn small key-capture">Click to set</button>
+        <button id="edShortcutClear" class="btn small ghost">Clear</button>
+        <label class="toggle small" title="Global shortcuts work even when the slideshow is in front. They must use ⌘ ⌃ ⌥ or an F-key.">
+          <input type="checkbox" id="edGlobal"><span>Global</span>
+        </label>
+      </div>
+    </div>
+    <div id="edShortcutNote" class="note"></div>
+    <div class="row"><span>Color</span><div id="edColors" class="colors"></div></div>
+    <label class="row col"><span>Notes</span><textarea id="edNotes" rows="3"></textarea></label>
+    <div class="editor-foot">
+      <button id="edTest" class="btn go small">Fire cue</button>
+      <button id="edDuplicate" class="btn small">Duplicate</button>
+      <div class="spacer"></div>
+      <button id="edDelete" class="btn small danger">Delete</button>
+    </div>
+  </aside>
+
+  <div id="settings" class="modal" hidden>
+    <div class="modal-card">
+      <div class="editor-head">
+        <h2>Settings</h2>
+        <button id="settingsClose" class="btn ghost small">✕</button>
+      </div>
+      <h3>Presentation app</h3>
+      <label class="row wide"><span>Open .ppt / .pptx with</span><select id="setPptApp"></select></label>
+      <h3>Changeover</h3>
+      <label class="toggle"><input type="checkbox" id="setClosePrev"><span>Close the previous presentation when the next cue starts</span></label>
+      <label class="toggle"><input type="checkbox" id="setBackdrop"><span>Show a black backdrop on the output while switching cues</span></label>
+      <label class="toggle"><input type="checkbox" id="setRefocus"><span>Bring Deck Cue back to the front after a cue starts</span></label>
+      <h3>Global shortcuts <small>work while the slideshow is in front · need ⌘ ⌃ ⌥ or an F-key</small></h3>
+      <div class="global-keys" id="globalKeys"></div>
+      <h3>System</h3>
+      <div id="envInfo" class="env"></div>
+    </div>
+  </div>
+
+  <div id="dropHint" class="drop-hint" hidden>Drop on a cue to replace its file · drop on empty space to add cues</div>
+
+  <script src="app.js"></script>
+</body>
+</html>

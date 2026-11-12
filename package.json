@@ -1,0 +1,38 @@
+{
+  "name": "needit-deck-cue",
+  "productName": "needit Deck Cue",
+  "version": "0.3.0",
+  "description": "Cue launcher for PowerPoint, WPS Office, Keynote and PDF presentations, for AV operators",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.needitcreative.deckcue",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "needit Deck Cue controls your presentation app to run your cues."
+      },
+      "icon": "build/icon.png"
+    },
+    "copyright": "Copyright \u00a9 2026 needit Creative",
+    "files": [
+      "src/**/*",
+      "package.json",
+      "!node_modules/@napi-rs/**",
+      "!node_modules/pdfjs-dist/{legacy,web,types,image_decoders,wasm}/**",
+      "!node_modules/pdfjs-dist/build/{pdf.mjs,pdf.worker.mjs,pdf.sandbox*}",
+      "!node_modules/pdfjs-dist/**/*.map"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "author": "needit Creative",
+  "dependencies": {
+    "pdfjs-dist": "^4.10.38"
+  }
+}
