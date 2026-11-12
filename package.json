@@ -19,7 +19,7 @@
       },
       "icon": "build/icon.png"
     },
-    "copyright": "Copyright \u00a9 2026 needit Creative",
+    "copyright": "Copyright © 2026 needit Creative",
     "files": [
       "src/**/*",
       "package.json",
@@ -61,6 +61,7 @@
   },
   "author": "needit Creative",
   "dependencies": {
-    "pdfjs-dist": "^4.10.38"
+    "pdfjs-dist": "^4.10.38",
+    "ws": "^8.18.0"
   }
 }

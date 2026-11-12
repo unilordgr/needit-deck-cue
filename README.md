@@ -30,6 +30,52 @@ Deck Cue detects which apps are installed (⚙︎ Settings › System lists them
 - WPS can't close a deck while a slideshow is running. With *Close the previous presentation* on, Deck Cue closes the old deck *before* starting the next one, so the editor shows for a moment during the change. Turn on *black backdrop* in Settings to hide it on the output.
 - Don't leave a dialog open in WPS (Save, Recover, etc.). Deck Cue can't click Play while one is showing.
 
+## Remote control: Bitfocus Companion, Stream Deck, OSC
+
+Deck Cue can be driven from a show controller. Turn it on and set ports in **⚙︎ Settings › Remote control**; these settings belong to the computer, not the show file.
+- By default only programs on the same computer can connect.
+- Tick **Allow other computers on the network** when Companion or the lighting desk is on another machine. Settings then shows the address to use.
+
+### Bitfocus Companion
+The module in `companion-module/` (Companion 4.0 or newer) provides:
+- **Actions:** GO, Stop, Blackout (toggle/on/off), next/previous slide, fire a cue, arm a cue, arm next/previous.
+- **Feedbacks:**
+  - Cue is live (red), Cue is next (yellow), Cue is loading, Cue file missing
+  - Blackout, Something is live
+  - Cue colour (the colour set in Deck Cue)
+- **Variables:** `live_name`, `next_name`, `slide_text` (PDF cues), `cue_N_name` and more.
+- **Presets:** a Transport page, and one button per cue that turns yellow when next and red when live.
+
+To install it:
+1. Build the package (`cd companion-module && npm install && npm run package`), or download it from the CI run.
+2. In Companion, import `needit-deckcue-<version>.tgz` under *Modules › Import module package*.
+3. Add a **needit Deck Cue** connection with the host and port shown in Deck Cue's settings.
+
+### HTTP + WebSocket API (default port 9640)
+| | |
+|---|---|
+| `GET /api/state` | Full state: cues (number, id, name, colour, state), live cue + slide, next cue, blackout |
+| `POST /api/go`, `/api/stop`, `/api/next`, `/api/prev` | Transport |
+| `POST /api/blackout[?state=on\|off]` | Toggle, or set |
+| `POST /api/cue/<number\|id\|name>/fire` · `/arm` | Fire or arm a cue |
+| `POST /api/arm/next`, `/api/arm/prev` | Move the NEXT cue |
+| `ws://host:9640/api/ws` | Pushes `{"type":"state","state":…}` on connect and on every change |
+
+### OSC (UDP, default port 9641)
+- **Input:**
+  - `/deckcue/go`, `/deckcue/stop`, `/deckcue/next`, `/deckcue/prev`
+  - `/deckcue/blackout [0|1]`
+  - `/deckcue/cue/fire <n|id>`, `/deckcue/cue/arm <n|id>`, `/deckcue/cue/<n>/fire`, `/deckcue/cue/<n>/arm`
+  - `/deckcue/arm/next`, `/deckcue/arm/prev`
+- **Feedback:** sent to the host:port set in Settings, and for an hour to anything that sends `/deckcue/state` (which also gets the full state at once). Only values that change are re-sent.
+  - `/deckcue/live/number i`, `/deckcue/live/name s`
+  - `/deckcue/next/number i`, `/deckcue/next/name s`
+  - `/deckcue/blackout i`
+  - `/deckcue/slide i i` (current, total; 0 when unknown)
+  - `/deckcue/cue/<n>/state s`, one of `live`, `next`, `loading`, `missing` or `idle`
+
+The current slide is only known for PDF cues so far. PowerPoint, WPS and Keynote don't report slide changes yet.
+
 ## Windows
 
 Deck Cue also runs on Windows 10/11 (x64). There it controls **PowerPoint** and **WPS Office** through COM automation, using the built-in Windows PowerShell; no extra permissions are needed. PDFs use the same built-in player as on the Mac. Keynote doesn't exist on Windows.

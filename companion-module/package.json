@@ -1,0 +1,25 @@
+{
+  "name": "needit-deckcue",
+  "version": "0.1.0",
+  "main": "src/main.js",
+  "type": "module",
+  "scripts": {
+    "check": "companion-module-check",
+    "package": "companion-module-build"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/unilordgr/needit-deck-cue.git"
+  },
+  "engines": {
+    "node": "^22.8"
+  },
+  "dependencies": {
+    "@companion-module/base": "~1.12.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@companion-module/tools": "^2.9.1"
+  }
+}

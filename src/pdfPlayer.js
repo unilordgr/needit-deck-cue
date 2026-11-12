@@ -66,12 +66,13 @@ async function show(file, { startPage = 1, bounds = null } = {}) {
   const t = ++token;
   const done = new Promise((resolve, reject) => pending.set(t, { resolve, reject }));
   command({ type: 'load', token: t, data, startPage });
-  await done;
+  const status = await done;
   current = { file };
   win.setBounds(target);
   win.show();
   await activateApp();
   win.focus();
+  return status;
 }
 
 // Activate the app, otherwise macOS keeps keyboard focus in the previous app and a presentation

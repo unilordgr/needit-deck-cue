@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('api', {
   pickFile: invoke('files:pick'),
   reveal: invoke('files:reveal'),
   env: invoke('env:status'),
+  controlGet: invoke('control:get'),
+  controlSet: invoke('control:set'),
   requestAccessibility: invoke('env:requestAccessibility'),
   pathForFile: (file) => webUtils.getPathForFile(file),
   on: (channel, fn) => {

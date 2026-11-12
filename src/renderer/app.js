@@ -242,12 +242,43 @@ function renderSettings() {
       </div>
       ${shortcutReport[k] ? `<div class="note bad">${esc(shortcutReport[k])}</div>` : ''}`;
   }).join('');
+  renderRemote();
   $('envInfo').innerHTML = `
     ${(env.apps || []).map((a) => `<div>${esc(a.name)}: ${a.installed ? '<span class="ok">installed</span>' : '<span class="bad">not found</span>'}</div>`).join('')}
     ${IS_MAC ? `<div>Accessibility (needed for WPS Office, and to send slideshows to a chosen output): ${env.accessibility ? '<span class="ok">allowed</span>' : '<span class="bad">not allowed</span> <button class="btn small" id="grantAx">Open settings</button>'}</div>
     <div style="color:var(--muted);font-size:12px">The first time a cue fires, macOS asks to let Deck Cue control your presentation app. Click OK.</div>` : ''}`;
   const g = $('grantAx');
   if (g) g.onclick = () => api.requestAccessibility();
+}
+
+// ---------- remote control settings ----------
+let remote = null; // { config, status, addresses }
+
+function statusLine(label, s) {
+  const ok = s && s.startsWith('listening');
+  return `<div>${label}: <span class="${ok ? 'status-ok' : 'status-bad'}">${esc(s || 'off')}</span></div>`;
+}
+
+function renderRemote() {
+  const box = $('remoteControl');
+  if (!remote) { box.textContent = 'Loading…'; return; }
+  const c = remote.config;
+  const host = c.allowNetwork ? (remote.addresses[0] || 'this-computer-ip') : '127.0.0.1';
+  box.innerHTML = `
+    <label class="toggle"><input type="checkbox" data-rc="enabled" ${c.enabled ? 'checked' : ''}><span>Enable remote control</span></label>
+    <label class="toggle"><input type="checkbox" data-rc="allowNetwork" ${c.allowNetwork ? 'checked' : ''}><span>Allow other computers on the network (Companion on another machine)</span></label>
+    <div class="grid2">
+      <span>HTTP / WebSocket port</span><input type="number" min="1024" max="65535" data-rc="httpPort" value="${c.httpPort}">
+      <span>OSC receive port (UDP)</span><input type="number" min="1024" max="65535" data-rc="oscPort" value="${c.oscPort}">
+      <span>OSC feedback to</span><div><input type="text" placeholder="host (optional)" data-rc="oscFeedbackHost" value="${esc(c.oscFeedbackHost)}"> : <input type="number" min="1" max="65535" data-rc="oscFeedbackPort" value="${c.oscFeedbackPort}"></div>
+    </div>
+    ${c.enabled ? `${statusLine('HTTP', remote.status.http)}${statusLine('OSC', remote.status.osc)}
+    <div class="addr">Companion: host <b>${esc(host)}</b>, port <b>${c.httpPort}</b><br>OSC: send to ${esc(host)}:${c.oscPort} · /deckcue/go, /deckcue/cue/3/fire …${c.allowNetwork && remote.addresses.length > 1 ? `<br>Other addresses of this computer: ${esc(remote.addresses.slice(1).join(', '))}` : ''}</div>` : ''}`;
+}
+
+async function saveRemote(patch) {
+  remote = await api.controlSet({ ...remote.config, ...patch });
+  renderRemote();
 }
 
 // ---------- cue operations ----------
@@ -428,7 +459,18 @@ function setupEditor() {
     commit();
   };
 
-  $('settingsBtn').onclick = async () => { env = await api.env(); $('settings').hidden = false; renderSettings(); };
+  $('settingsBtn').onclick = async () => {
+    env = await api.env();
+    remote = await api.controlGet();
+    $('settings').hidden = false;
+    renderSettings();
+  };
+  $('remoteControl').addEventListener('change', (e) => {
+    const key = e.target.dataset.rc;
+    if (!key) return;
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.type === 'number' ? Number(e.target.value) : e.target.value.trim();
+    saveRemote({ [key]: value });
+  });
   $('settingsClose').onclick = () => { $('settings').hidden = true; capture = null; };
   $('settings').onclick = (e) => {
     if (e.target === $('settings')) { $('settings').hidden = true; capture = null; return; }
@@ -536,6 +578,7 @@ async function init() {
     render();
   });
   api.on('displays', (d) => { displays = d; render(); });
+  api.on('control-status', (status) => { if (remote) { remote.status = status; if (!$('settings').hidden) renderRemote(); } });
   window.addEventListener('focus', async () => { await refreshFileStatus(); renderGrid(); renderEditor(); });
 }
 

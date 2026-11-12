@@ -1,0 +1,208 @@
+// Remote control for show controllers: HTTP actions, a WebSocket that pushes state, and OSC over UDP.
+// Used by the Bitfocus Companion module (companion-module/) and by any OSC-capable controller.
+//
+// HTTP   GET  /api/state                  full state (JSON)
+//        POST /api/go | /api/stop | /api/next | /api/prev
+//        POST /api/blackout[?state=on|off] (toggle without state)
+//        POST /api/cue/<number|id>/fire | /api/cue/<number|id>/arm
+//        POST /api/arm/next | /api/arm/prev
+// WS     /api/ws                          sends {type:"state", state} on connect and on every change
+// OSC    /deckcue/go, /stop, /next, /prev, /blackout [0|1], /cue/fire <n|id>, /cue/arm <n|id>,
+//        /cue/<n>/fire, /cue/<n>/arm, /arm/next, /arm/prev, /state (replies to the sender)
+//        Feedback to the configured host:port and to /state requesters:
+//        /deckcue/live/number i, /live/name s, /next/number i, /next/name s, /blackout i,
+//        /slide i i, /cue/<n>/state s ("live" | "next" | "loading" | "missing" | "idle")
+const http = require('http');
+const dgram = require('dgram');
+const os = require('os');
+const { WebSocketServer } = require('ws');
+const osc = require('./osc');
+
+const PREFIX = '/deckcue';
+
+function createControlServer({ getState, actions, onStatus }) {
+  let config = null;
+  let httpServer = null;
+  let wss = null;
+  let udp = null;
+  let status = { http: 'off', osc: 'off' };
+  let lastOsc = new Map(); // address -> last sent value, so feedback only goes out on change
+  const oscRequesters = new Map(); // "host:port" -> expiry time
+
+  function setStatus(patch) {
+    status = { ...status, ...patch };
+    onStatus(status);
+  }
+
+  // ---------- actions shared by HTTP and OSC ----------
+  function run(action, arg) {
+    switch (action) {
+      case 'go': return actions.go();
+      case 'stop': return actions.stop();
+      case 'next': return actions.nav('next');
+      case 'prev': return actions.nav('previous');
+      case 'blackout': return actions.blackout(arg);
+      case 'fire': return actions.fire(arg);
+      case 'arm': return actions.arm(arg);
+      case 'arm-next': return actions.armStep(1);
+      case 'arm-prev': return actions.armStep(-1);
+      default: throw Object.assign(new Error(`Unknown action ${action}`), { code: 404 });
+    }
+  }
+
+  // ---------- HTTP + WebSocket ----------
+  function send(res, code, body) {
+    res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(body));
+  }
+
+  function route(method, pathname, query) {
+    const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean); // ["api", ...]
+    if (parts[0] !== 'api') return null;
+    const [, a, b, c] = parts;
+    if (method === 'GET' && a === 'state' && !b) return { state: true };
+    if (method !== 'POST') return null;
+    if (['go', 'stop', 'next', 'prev'].includes(a) && !b) return { action: a };
+    if (a === 'blackout' && !b) {
+      const s = query.get('state');
+      return { action: 'blackout', arg: s === 'on' ? true : s === 'off' ? false : undefined };
+    }
+    if (a === 'cue' && b && (c === 'fire' || c === 'arm')) return { action: c, arg: decodeURIComponent(b) };
+    if (a === 'arm' && (b === 'next' || b === 'prev') && !c) return { action: `arm-${b}` };
+    return null;
+  }
+
+  function onRequest(req, res) {
+    const url = new URL(req.url, 'http://localhost');
+    const r = route(req.method, url.pathname, url.searchParams);
+    if (!r) return send(res, 404, { ok: false, error: 'Not found' });
+    if (r.state) return send(res, 200, getState());
+    Promise.resolve()
+      .then(() => run(r.action, r.arg))
+      .then(() => send(res, 200, { ok: true }))
+      .catch((e) => send(res, e.code || 400, { ok: false, error: e.message }));
+  }
+
+  // ---------- OSC ----------
+  function oscCueArg(args) {
+    if (!args.length) throw new Error('Missing cue number or id');
+    return typeof args[0] === 'number' ? Math.round(args[0]) : String(args[0]);
+  }
+
+  function onOsc(msg, rinfo) {
+    let messages;
+    try { messages = osc.decode(msg); } catch { return; }
+    for (const { address, args } of messages) {
+      if (!address.startsWith(`${PREFIX}/`)) continue;
+      const parts = address.slice(PREFIX.length + 1).split('/');
+      try {
+        if (parts[0] === 'state' && parts.length === 1) {
+          oscRequesters.set(`${rinfo.address}:${rinfo.port}`, Date.now() + 60 * 60 * 1000);
+          sendFullFeedback([{ address: rinfo.address, port: rinfo.port }]);
+        } else if (['go', 'stop', 'next', 'prev'].includes(parts[0]) && parts.length === 1) run(parts[0]);
+        else if (parts[0] === 'blackout' && parts.length === 1) run('blackout', args.length ? Boolean(args[0]) : undefined);
+        else if (parts[0] === 'cue' && (parts[1] === 'fire' || parts[1] === 'arm') && parts.length === 2) run(parts[1], oscCueArg(args));
+        else if (parts[0] === 'cue' && (parts[2] === 'fire' || parts[2] === 'arm') && parts.length === 3) run(parts[2], parts[1]);
+        else if (parts[0] === 'arm' && (parts[1] === 'next' || parts[1] === 'prev') && parts.length === 2) run(`arm-${parts[1]}`);
+      } catch { /* ignore bad OSC input */ }
+    }
+  }
+
+  function feedbackMessages(state) {
+    const msgs = [
+      [`${PREFIX}/live/number`, state.live ? state.live.number : 0],
+      [`${PREFIX}/live/name`, state.live ? state.live.name : ''],
+      [`${PREFIX}/next/number`, state.next ? state.next.number : 0],
+      [`${PREFIX}/next/name`, state.next ? state.next.name : ''],
+      [`${PREFIX}/blackout`, state.blackout ? 1 : 0],
+      [`${PREFIX}/slide`, state.live && state.live.slide ? state.live.slide : 0, state.live && state.live.slides ? state.live.slides : 0],
+    ];
+    for (const c of state.cues) msgs.push([`${PREFIX}/cue/${c.number}/state`, c.state]);
+    return msgs;
+  }
+
+  function oscTargets() {
+    const now = Date.now();
+    const targets = [];
+    if (config.oscFeedbackHost && config.oscFeedbackPort) targets.push({ address: config.oscFeedbackHost, port: Number(config.oscFeedbackPort) });
+    for (const [key, expiry] of oscRequesters) {
+      if (expiry < now) { oscRequesters.delete(key); continue; }
+      const i = key.lastIndexOf(':');
+      targets.push({ address: key.slice(0, i), port: Number(key.slice(i + 1)) });
+    }
+    return targets;
+  }
+
+  function sendOsc(targets, address, args) {
+    const buf = osc.encode(address, args);
+    for (const t of targets) udp.send(buf, t.port, t.address, () => {});
+  }
+
+  function sendFullFeedback(targets) {
+    if (!udp) return;
+    for (const [address, ...args] of feedbackMessages(getState())) sendOsc(targets, address, args);
+  }
+
+  // ---------- lifecycle ----------
+  function stop() {
+    if (wss) { for (const c of wss.clients) c.terminate(); wss.close(); wss = null; }
+    if (httpServer) { httpServer.close(); httpServer = null; }
+    if (udp) { udp.close(); udp = null; }
+    lastOsc = new Map();
+    setStatus({ http: 'off', osc: 'off' });
+  }
+
+  function start(next) {
+    stop();
+    config = next;
+    if (!config.enabled) return;
+    const host = config.allowNetwork ? '0.0.0.0' : '127.0.0.1';
+
+    httpServer = http.createServer(onRequest);
+    wss = new WebSocketServer({ noServer: true });
+    httpServer.on('upgrade', (req, socket, head) => {
+      if (new URL(req.url, 'http://localhost').pathname !== '/api/ws') return socket.destroy();
+      wss.handleUpgrade(req, socket, head, (ws) => ws.send(JSON.stringify({ type: 'state', state: getState() })));
+    });
+    httpServer.on('error', (e) => setStatus({ http: `error: ${e.code === 'EADDRINUSE' ? `port ${config.httpPort} is in use` : e.message}` }));
+    httpServer.listen(Number(config.httpPort), host, () => setStatus({ http: `listening on ${host}:${config.httpPort}` }));
+
+    udp = dgram.createSocket('udp4');
+    udp.on('message', onOsc);
+    udp.on('error', (e) => setStatus({ osc: `error: ${e.code === 'EADDRINUSE' ? `port ${config.oscPort} is in use` : e.message}` }));
+    udp.bind(Number(config.oscPort), host, () => setStatus({ osc: `listening on ${host}:${config.oscPort}` }));
+  }
+
+  // Called by the app whenever cues, live/next cue, slide or blackout change.
+  function update() {
+    if (!config || !config.enabled) return;
+    const state = getState();
+    if (wss) {
+      const msg = JSON.stringify({ type: 'state', state });
+      for (const c of wss.clients) if (c.readyState === 1) c.send(msg);
+    }
+    if (udp) {
+      const targets = oscTargets();
+      if (!targets.length) return;
+      for (const [address, ...args] of feedbackMessages(state)) {
+        const key = JSON.stringify(args);
+        if (lastOsc.get(address) === key) continue;
+        lastOsc.set(address, key);
+        sendOsc(targets, address, args);
+      }
+    }
+  }
+
+  return { start, stop, update, getStatus: () => status };
+}
+
+// Addresses another computer on the network can use to reach this one.
+function localAddresses() {
+  const out = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const a of list || []) if (a.family === 'IPv4' && !a.internal) out.push(a.address);
+  }
+  return out;
+}
+
+module.exports = { createControlServer, localAddresses };

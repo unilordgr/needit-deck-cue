@@ -10,12 +10,17 @@ if (process.env.PORTABLE_EXECUTABLE_DIR) {
 }
 
 const presenters = require('./presenters');
+const { createControlServer, localAddresses } = require('./control/server');
 
 let win = null;
 let show = null;
 let showPath = null;
 let dirty = false;
 let shortcutReport = {};
+// Per-machine settings (not part of the show file).
+const DEFAULT_CONTROL = { enabled: true, allowNetwork: false, httpPort: 9640, oscPort: 9641, oscFeedbackHost: '', oscFeedbackPort: 9642 };
+let prefs = { control: { ...DEFAULT_CONTROL } };
+let control = null;
 const state = { liveCueId: null, live: null, armedCueId: null, busyCueId: null, blackout: false, message: null, messageLevel: null };
 const blackoutWins = new Map();
 
@@ -58,16 +63,17 @@ function readJSON(file) {
 function autosave() {
   try {
     fs.writeFileSync(userFile('autosave.deckcue'), JSON.stringify(show, null, 2));
-    fs.writeFileSync(userFile('prefs.json'), JSON.stringify({ showPath, dirty }));
+    fs.writeFileSync(userFile('prefs.json'), JSON.stringify({ ...prefs, showPath, dirty }));
   } catch (e) { console.error('autosave failed', e); }
 }
 
 function loadInitial() {
-  const prefs = readJSON(userFile('prefs.json')) || {};
+  const saved = readJSON(userFile('prefs.json')) || {};
+  prefs = { ...saved, control: { ...DEFAULT_CONTROL, ...(saved.control || {}) } };
   const auto = readJSON(userFile('autosave.deckcue'));
   show = normalizeShow(auto || defaultShow());
-  showPath = prefs.showPath && fs.existsSync(prefs.showPath) ? prefs.showPath : null;
-  dirty = !!prefs.dirty;
+  showPath = saved.showPath && fs.existsSync(saved.showPath) ? saved.showPath : null;
+  dirty = !!saved.dirty;
 }
 
 function withRelativePaths(s, file) {
@@ -196,6 +202,11 @@ function hideBlack() {
   blackoutWins.clear();
 }
 
+// on: true/false to set, undefined to toggle.
+function setBlackout(on) {
+  if (on === undefined || on !== state.blackout) toggleBlackout();
+}
+
 function toggleBlackout() {
   if (state.blackout) {
     hideBlack(); state.blackout = false;
@@ -266,10 +277,14 @@ async function fireCue(id) {
       if (auto) await presenters.stop('wps').catch(() => {});
       await presenters.close(prev.app, prev.file).catch(() => {});
     }
-    await presenters.fire(appName, { file, startSlide: Number(cue.startSlide) || 1, auto, bounds: display ? display.bounds : null });
+    const result = await presenters.fire(appName, { file, startSlide: Number(cue.startSlide) || 1, auto, bounds: display ? display.bounds : null });
     if (closePrev && !closeFirst) await presenters.close(prev.app, prev.file).catch(() => {});
     state.live = { cueId: id, app: appName, file };
-    state.liveDetail = null;
+    // The PDF player reports its first page before the cue is live, so take it from the result.
+    const pdf = appName === 'pdf' && result && result.page ? result : null;
+    state.liveDetail = pdf ? `page ${pdf.page}/${pdf.pages}` : null;
+    state.liveSlide = pdf ? pdf.page : null;
+    state.liveSlides = pdf ? pdf.pages : null;
     registerShortcuts();
     state.liveCueId = id;
     const idx = show.cues.findIndex((c) => c.id === id);
@@ -345,13 +360,57 @@ function registerShortcuts() {
 const CLICKER_KEYS = [['PageDown', 'next'], ['PageUp', 'previous'], ['Right', 'next'], ['Left', 'previous'], ['Down', 'next'], ['Up', 'previous']];
 
 // ---------- ipc ----------
+// ---------- remote control ----------
+function cueByRef(ref) {
+  const n = typeof ref === 'number' ? ref : /^\d+$/.test(String(ref)) ? Number(ref) : null;
+  const cue = n !== null
+    ? show.cues[n - 1]
+    : show.cues.find((c) => c.id === ref) || show.cues.find((c) => cueName(c).toLowerCase() === String(ref).toLowerCase());
+  if (!cue) throw Object.assign(new Error(`No cue ${ref}`), { code: 404 });
+  return cue;
+}
+
+function armStep(delta) {
+  if (!show.cues.length) return;
+  const i = show.cues.findIndex((c) => c.id === state.armedCueId);
+  const n = Math.min(show.cues.length - 1, Math.max(0, (i < 0 ? 0 : i + delta)));
+  state.armedCueId = show.cues[n].id;
+  broadcast();
+}
+
+function remoteState() {
+  const ref = (c) => (c ? { number: show.cues.indexOf(c) + 1, id: c.id, name: cueName(c) } : null);
+  const liveCue = state.liveCueId && show.cues.find((c) => c.id === state.liveCueId);
+  const nextCue = (state.armedCueId && show.cues.find((c) => c.id === state.armedCueId)) || (!liveCue && show.cues[0]) || null;
+  return {
+    app: APP_NAME,
+    show: show.showName,
+    live: liveCue ? { ...ref(liveCue), app: state.live && state.live.app, slide: state.liveSlide || null, slides: state.liveSlides || null } : null,
+    next: ref(nextCue),
+    loading: ref(state.busyCueId && show.cues.find((c) => c.id === state.busyCueId)),
+    blackout: !!state.blackout,
+    message: state.message || null,
+    cues: show.cues.map((c, i) => {
+      const missing = !c.file || !fs.existsSync(c.file.path);
+      const st = c.id === state.busyCueId ? 'loading' : c.id === state.liveCueId ? 'live' : nextCue && c.id === nextCue.id ? 'next' : missing ? 'missing' : 'idle';
+      return { number: i + 1, id: c.id, name: cueName(c), color: c.color || null, state: st, missing };
+    }),
+  };
+}
+
+function startControl() {
+  control.start(prefs.control);
+}
+
 function sendShow() {
   if (win && !win.isDestroyed()) win.webContents.send('show', { show, showPath, dirty, shortcutReport });
   updateTitle();
+  if (control) control.update();
 }
 
 function broadcast() {
   if (win && !win.isDestroyed()) win.webContents.send('state', state);
+  if (control) control.update();
 }
 
 function updateTitle() {
@@ -366,6 +425,7 @@ function setupIpc() {
     show = normalizeShow(s); dirty = true;
     if (state.armedCueId && !show.cues.some((c) => c.id === state.armedCueId)) state.armedCueId = null;
     autosave(); registerShortcuts(); updateTitle();
+    if (control) control.update();
     return { shortcutReport, dirty };
   });
   ipcMain.handle('show:file', (_e, cmd) => fileCommand(cmd));
@@ -385,6 +445,13 @@ function setupIpc() {
     return r.canceled ? null : r.filePaths[0];
   });
   ipcMain.handle('files:reveal', (_e, p) => shell.showItemInFolder(p));
+  ipcMain.handle('control:get', () => ({ config: prefs.control, status: control.getStatus(), addresses: localAddresses() }));
+  ipcMain.handle('control:set', (_e, config) => {
+    prefs.control = { ...DEFAULT_CONTROL, ...config };
+    autosave();
+    startControl();
+    return { config: prefs.control, status: control.getStatus(), addresses: localAddresses() };
+  });
   ipcMain.handle('env:status', () => ({
     platform: process.platform,
     accessibility: IS_MAC ? axTrusted() : null,
@@ -447,21 +514,40 @@ function createWindow() {
 app.whenReady().then(() => {
   presenters.pdfPlayer.on('status', (s) => {
     if (process.env.DECKCUE_DEBUG) console.log(`[pdf] page ${s.page}/${s.pages}`);
-    if (state.live && state.live.app === 'pdf') { state.liveDetail = `page ${s.page}/${s.pages}`; broadcast(); }
+    if (state.live && state.live.app === 'pdf') {
+      state.liveDetail = `page ${s.page}/${s.pages}`;
+      state.liveSlide = s.page;
+      state.liveSlides = s.pages;
+      broadcast();
+    }
   });
   presenters.pdfPlayer.on('closed', () => {
     if (state.live && state.live.app === 'pdf') { state.live = null; state.liveCueId = null; state.liveDetail = null; registerShortcuts(); broadcast(); }
   });
   loadInitial();
+  control = createControlServer({
+    getState: remoteState,
+    actions: {
+      go,
+      stop: stopAll,
+      nav: navSlide,
+      blackout: setBlackout,
+      fire: (ref) => { fireCue(cueByRef(ref).id); },
+      arm: (ref) => { state.armedCueId = cueByRef(ref).id; broadcast(); },
+      armStep,
+    },
+    onStatus: (status) => { if (win && !win.isDestroyed()) win.webContents.send('control-status', status); },
+  });
   setupIpc();
   buildMenu();
   createWindow();
   registerShortcuts();
+  startControl();
   const onDisplays = () => { if (win) win.webContents.send('displays', listDisplays()); };
   screen.on('display-added', onDisplays);
   screen.on('display-removed', onDisplays);
   screen.on('display-metrics-changed', onDisplays);
 });
 
-app.on('will-quit', () => { globalShortcut.unregisterAll(); hideBlack(); });
+app.on('will-quit', () => { globalShortcut.unregisterAll(); hideBlack(); if (control) control.stop(); });
 app.on('window-all-closed', () => app.quit());

@@ -1,0 +1,22 @@
+{
+  "$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
+  "id": "needit-deckcue",
+  "name": "needit-deckcue",
+  "shortname": "Deck Cue",
+  "description": "Control needit Deck Cue: fire presentation cues (PowerPoint, WPS Office, Keynote, PDF), GO, slides and blackout, with live cue feedback.",
+  "version": "0.0.0",
+  "license": "MIT",
+  "repository": "git+https://github.com/unilordgr/needit-deck-cue.git",
+  "bugs": "https://github.com/unilordgr/needit-deck-cue/issues",
+  "maintainers": [{ "name": "needit Creative" }],
+  "legacyIds": [],
+  "runtime": {
+    "type": "node22",
+    "api": "nodejs-ipc",
+    "apiVersion": "0.0.0",
+    "entrypoint": "../src/main.js"
+  },
+  "manufacturer": "needit Creative",
+  "products": ["Deck Cue"],
+  "keywords": ["presentation", "powerpoint", "keynote", "pdf", "playback", "slides"]
+}

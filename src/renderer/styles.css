@@ -192,6 +192,13 @@ body.locked .add-tile { display: none; }
 .modal-card h3 small { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }
 .global-keys { display: grid; grid-template-columns: 120px 1fr; gap: 8px 10px; align-items: center; }
 .global-keys .note { margin: 0; grid-column: 2; }
+.remote { display: flex; flex-direction: column; gap: 8px; }
+.remote .grid2 { display: grid; grid-template-columns: 170px 1fr; gap: 8px 10px; align-items: center; }
+.remote input[type=number] { width: 110px; }
+.remote input[type=text] { width: 180px; }
+.remote .addr { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; user-select: text; }
+.remote .status-ok { color: var(--go); }
+.remote .status-bad { color: #ff9d9d; }
 .env { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .env .ok { color: var(--go); }
 .env .bad { color: #ff9d9d; }
