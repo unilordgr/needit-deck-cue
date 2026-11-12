@@ -30,6 +30,25 @@ Deck Cue detects which apps are installed (⚙︎ Settings › System lists them
 - WPS can't close a deck while a slideshow is running. With *Close the previous presentation* on, Deck Cue closes the old deck *before* starting the next one, so the editor shows for a moment during the change. Turn on *black backdrop* in Settings to hide it on the output.
 - Don't leave a dialog open in WPS (Save, Recover, etc.). Deck Cue can't click Play while one is showing.
 
+## Stage display (confidence monitor)
+
+Open `http://<deck-cue-computer>:9640/stage` in any browser: a monitor on the stage, a tablet on the lectern, or a laptop at front of house. ⚙︎ Settings › Remote control shows the exact link and has **Open stage display** buttons. A device other than this computer needs *Allow other computers on the network* turned on.
+
+It shows:
+- the **live cue** with its slide number, and a **preview of the current and next page** for PDF cues
+- the **next cue**
+- the cue's **notes** (from the cue editor), as speaker notes
+- a large **countdown timer** that turns amber in the last 2 minutes and red with "+MM:SS" when over time, plus the time of day
+- **operator messages** as a banner across the top, optionally flashing
+
+`/stage?view=timer` shows only the timer, for a dedicated countdown monitor. The page adapts to portrait tablets and phones.
+
+**Operator controls** are in the bar at the bottom of the main window:
+- *Timer*: type `5`, `2:30` or `1:00:00` and press Return to set it. ▶/⏸ starts and pauses, ⟲ resets.
+- *Message*: type and press Return to show it on stage. ⚡ makes it flash, ✕ clears it.
+
+Each cue can have a **Timer (min)**. When that cue fires, the timer restarts with that duration (*Settings › Start the speaker timer when a cue with a timer fires*). The timer and messages can also be controlled over the API, OSC and Companion (below).
+
 ## Remote control: Bitfocus Companion, Stream Deck, OSC
 
 Deck Cue can be driven from a show controller. Turn it on and set ports in **⚙︎ Settings › Remote control**; these settings belong to the computer, not the show file.
@@ -43,8 +62,9 @@ The module in `companion-module/` (Companion 4.0 or newer) provides:
   - Cue is live (red), Cue is next (yellow), Cue is loading, Cue file missing
   - Blackout, Something is live
   - Cue colour (the colour set in Deck Cue)
-- **Variables:** `live_name`, `next_name`, `slide_text` (PDF cues), `cue_N_name` and more.
-- **Presets:** a Transport page, and one button per cue that turns yellow when next and red when live.
+- **Timer and message actions:** start/pause/reset/set/add time, show or clear a stage message (feedback: running, nearly done, over time, message showing).
+- **Variables:** `live_name`, `next_name`, `slide_text` (PDF cues), `timer`, `stage_message`, `cue_N_name` and more.
+- **Presets:** a Transport page, one button per cue that turns yellow when next and red when live, a Timer page (live countdown, 5–30 min, ±1 min) and a Stage messages page (WRAP UP, 5 MIN, …).
 
 To install it:
 1. Build the package (`cd companion-module && npm install && npm run package`), or download it from the CI run.
@@ -59,6 +79,9 @@ To install it:
 | `POST /api/blackout[?state=on\|off]` | Toggle, or set |
 | `POST /api/cue/<number\|id\|name>/fire` · `/arm` | Fire or arm a cue |
 | `POST /api/arm/next`, `/api/arm/prev` | Move the NEXT cue |
+| `POST /api/timer/start`, `/pause`, `/reset`, `/set?seconds=N`, `/add?seconds=N` | Speaker timer (negative `add` removes time) |
+| `POST /api/message?text=…&flash=1`, `/api/message/clear` | Stage message |
+| `GET /stage`, `/stage?view=timer` | Stage display page |
 | `ws://host:9640/api/ws` | Pushes `{"type":"state","state":…}` on connect and on every change |
 
 ### OSC (UDP, default port 9641)
@@ -67,6 +90,8 @@ To install it:
   - `/deckcue/blackout [0|1]`
   - `/deckcue/cue/fire <n|id>`, `/deckcue/cue/arm <n|id>`, `/deckcue/cue/<n>/fire`, `/deckcue/cue/<n>/arm`
   - `/deckcue/arm/next`, `/deckcue/arm/prev`
+  - `/deckcue/timer/start`, `/pause`, `/reset`, `/deckcue/timer/set <seconds>`, `/deckcue/timer/add <seconds>`
+  - `/deckcue/message <text> [flash 0|1]`, `/deckcue/message/clear`
 - **Feedback:** sent to the host:port set in Settings, and for an hour to anything that sends `/deckcue/state` (which also gets the full state at once). Only values that change are re-sent.
   - `/deckcue/live/number i`, `/deckcue/live/name s`
   - `/deckcue/next/number i`, `/deckcue/next/name s`

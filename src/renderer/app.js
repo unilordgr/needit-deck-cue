@@ -206,6 +206,7 @@ function renderEditor() {
   $('edApp').disabled = isPdf;
   $('edAuto').value = c.autoSlideshow === true ? 'on' : c.autoSlideshow === false ? 'off' : 'default';
   if (document.activeElement !== $('edStart')) $('edStart').value = c.startSlide || 1;
+  if (document.activeElement !== $('edDuration')) $('edDuration').value = c.duration || '';
   $('edOutput').innerHTML = outputOptions(c.output || 'default', true);
   const sc = c.shortcut && c.shortcut.accel;
   const btn = $('edShortcut');
@@ -230,6 +231,7 @@ function renderSettings() {
   const s = show.settings;
   $('setPptApp').innerHTML = appOptions(s.pptApp, `Auto: first installed (${appInfo(env.pptApp).name})`);
   $('setClosePrev').checked = !!s.closePrevious;
+  $('setTimerAuto').checked = s.timerAutoStart !== false;
   $('setBackdrop').checked = !!s.backdropDuringChangeover;
   $('setRefocus').checked = !!s.refocusAfterFire;
   $('globalKeys').innerHTML = GLOBAL_ACTIONS.map(([k, label]) => {
@@ -273,12 +275,71 @@ function renderRemote() {
       <span>OSC feedback to</span><div><input type="text" placeholder="host (optional)" data-rc="oscFeedbackHost" value="${esc(c.oscFeedbackHost)}"> : <input type="number" min="1" max="65535" data-rc="oscFeedbackPort" value="${c.oscFeedbackPort}"></div>
     </div>
     ${c.enabled ? `${statusLine('HTTP', remote.status.http)}${statusLine('OSC', remote.status.osc)}
+    <div class="addr">Stage display: <b>http://${esc(host)}:${c.httpPort}/stage</b> (timer only: <b>/stage?view=timer</b>)<br>
+      <button class="btn small" id="openStage">Open stage display</button> <button class="btn small ghost" id="openStageTimer">Open timer only</button>${c.allowNetwork ? '' : '<br>Tick “Allow other computers” to open it on a tablet or another computer.'}</div>
     <div class="addr">Companion: host <b>${esc(host)}</b>, port <b>${c.httpPort}</b><br>OSC: send to ${esc(host)}:${c.oscPort} · /deckcue/go, /deckcue/cue/3/fire …${c.allowNetwork && remote.addresses.length > 1 ? `<br>Other addresses of this computer: ${esc(remote.addresses.slice(1).join(', '))}` : ''}</div>` : ''}`;
+  wireRemoteButtons();
+}
+
+function wireRemoteButtons() {
+  const a = $('openStage');
+  const b = $('openStageTimer');
+  if (a) a.onclick = () => api.openStage('full');
+  if (b) b.onclick = () => api.openStage('timer');
 }
 
 async function saveRemote(patch) {
   remote = await api.controlSet({ ...remote.config, ...patch });
   renderRemote();
+}
+
+// ---------- speaker timer and stage message ----------
+function fmtTimer(ms) {
+  const over = ms < 0;
+  const total = over ? Math.floor(-ms / 1000) : Math.ceil(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = String(total % 60).padStart(2, '0');
+  return `${over ? '+' : ''}${h ? `${h}:${String(m).padStart(2, '0')}` : String(m).padStart(2, '0')}:${sec}`;
+}
+
+function tickTimer() {
+  const t = runtime.timer;
+  const el = $('timerDisplay');
+  if (!t) return;
+  const remaining = t.running ? t.endsAt - Date.now() : t.remaining;
+  const idle = !t.running && !t.duration && !t.remaining;
+  el.textContent = idle ? '--:--' : fmtTimer(remaining);
+  el.className = `timer-display${idle ? ' idle' : ''}${!idle && !t.running ? ' paused' : ''}${!idle && remaining < 0 ? ' over' : !idle && remaining <= 120000 ? ' warn' : ''}`;
+  $('timerStart').textContent = t.running ? '⏸' : '▶';
+}
+
+// "5" = 5 minutes, "2:30" = 2 min 30 s, "1:00:00" = 1 hour.
+function parseDuration(text) {
+  const parts = String(text).trim().split(':').map((p) => Number(p));
+  if (!parts.length || parts.some((n) => !Number.isFinite(n) || n < 0)) return null;
+  if (parts.length === 1) return Math.round(parts[0] * 60);
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return null;
+}
+
+function setupStageBar() {
+  $('timerSet').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const seconds = parseDuration(e.target.value);
+    if (seconds === null) return flash('Timer: type minutes (5), mm:ss (2:30) or h:mm:ss.', 'warn');
+    api.timerCmd('set', seconds);
+    e.target.value = '';
+    e.target.blur();
+  });
+  $('timerStart').onclick = () => api.timerCmd(runtime.timer && runtime.timer.running ? 'pause' : 'start');
+  $('timerReset').onclick = () => api.timerCmd('reset');
+  const send = () => api.stageMessage($('stageMsg').value.trim(), $('stageFlash').checked);
+  $('stageMsg').addEventListener('keydown', (e) => { if (e.key === 'Enter') { send(); e.target.blur(); } });
+  $('stageFlash').onchange = () => { if (runtime.stageMessage && runtime.stageMessage.text) send(); };
+  $('stageClear').onclick = () => { $('stageMsg').value = ''; api.stageMessage('', false); };
+  setInterval(tickTimer, 250);
 }
 
 // ---------- cue operations ----------
@@ -426,6 +487,7 @@ function setupEditor() {
   $('edApp').onchange = (e) => updateSelected({ app: e.target.value });
   $('edAuto').onchange = (e) => updateSelected({ autoSlideshow: e.target.value === 'on' ? true : e.target.value === 'off' ? false : null });
   $('edStart').oninput = (e) => updateSelected({ startSlide: Math.max(1, parseInt(e.target.value, 10) || 1) });
+  $('edDuration').oninput = (e) => updateSelected({ duration: Math.max(0, parseFloat(e.target.value) || 0) || null });
   $('edOutput').onchange = (e) => updateSelected({ output: outputFromValue(e.target.value, cueById(selectedId).output) });
   $('edNotes').oninput = (e) => updateSelected({ notes: e.target.value });
   $('edColors').onclick = (e) => { const s = e.target.closest('[data-color]'); if (s) updateSelected({ color: s.dataset.color }); };
@@ -480,6 +542,7 @@ function setupEditor() {
     if (cl) { show.settings.globalKeys[cl.dataset.gclear] = ''; commit(); }
   };
   $('setPptApp').onchange = async (e) => { show.settings.pptApp = e.target.value; await api.updateShow(show); env = await api.env(); render(); };
+  $('setTimerAuto').onchange = (e) => { show.settings.timerAutoStart = e.target.checked; commit(); };
   $('setClosePrev').onchange = (e) => { show.settings.closePrevious = e.target.checked; commit(); };
   $('setBackdrop').onchange = (e) => { show.settings.backdropDuringChangeover = e.target.checked; commit(); };
   $('setRefocus').onchange = (e) => { show.settings.refocusAfterFire = e.target.checked; commit(); };
@@ -568,9 +631,16 @@ async function init() {
   setupDragDrop();
   setupEditor();
   setupKeyboard();
+  setupStageBar();
   render();
 
-  api.on('state', (s) => { runtime = s; renderGrid(); renderStatus(); });
+  api.on('state', (s) => {
+    runtime = s;
+    renderGrid();
+    renderStatus();
+    tickTimer();
+    $('stageMsg').classList.toggle('sent', !!(s.stageMessage && s.stageMessage.text));
+  });
   api.on('show', async (p) => {
     show = p.show; shortcutReport = p.shortcutReport || {};
     if (selectedId && !cueById(selectedId)) selectedId = null;

@@ -21,7 +21,12 @@ let shortcutReport = {};
 const DEFAULT_CONTROL = { enabled: true, allowNetwork: false, httpPort: 9640, oscPort: 9641, oscFeedbackHost: '', oscFeedbackPort: 9642 };
 let prefs = { control: { ...DEFAULT_CONTROL } };
 let control = null;
-const state = { liveCueId: null, live: null, armedCueId: null, busyCueId: null, blackout: false, message: null, messageLevel: null };
+const state = {
+  liveCueId: null, live: null, armedCueId: null, busyCueId: null, blackout: false, message: null, messageLevel: null,
+  // Speaker countdown: while running, endsAt is the wall-clock end; while paused, remaining holds the time left.
+  timer: { duration: 0, remaining: 0, endsAt: null, running: false },
+  stageMessage: { text: '', flash: false }, // shown on the stage display
+};
 const blackoutWins = new Map();
 
 const userFile = (name) => path.join(app.getPath('userData'), name);
@@ -37,6 +42,7 @@ function defaultShow() {
     settings: {
       defaultOutput: 'auto',          // 'auto' = let PowerPoint choose, or a display ref {id,label,width,height}
       defaultAutoSlideshow: true,
+      timerAutoStart: true,           // start the speaker timer when a cue with a duration fires
       pptApp: 'auto',                 // app for .ppt/.pptx: 'auto' (first installed) | 'powerpoint' | 'wps' | 'keynote'
       closePrevious: true,            // close the previous cue's presentation after the new one starts
       refocusAfterFire: false,        // bring Deck Cue back to front after a cue starts
@@ -227,6 +233,37 @@ function cueAutoSlideshow(cue) {
   return cue.autoSlideshow === true || cue.autoSlideshow === false ? cue.autoSlideshow : show.settings.defaultAutoSlideshow;
 }
 
+// ---------- speaker timer and stage message ----------
+function timerRemaining() {
+  const t = state.timer;
+  return t.running ? t.endsAt - Date.now() : t.remaining;
+}
+
+function timerCommand(cmd, seconds) {
+  const t = state.timer;
+  if (cmd === 'set') {
+    const ms = Math.max(0, Math.round(Number(seconds) || 0) * 1000);
+    state.timer = { duration: ms, remaining: ms, endsAt: t.running ? Date.now() + ms : null, running: t.running };
+  } else if (cmd === 'start') {
+    if (!t.running) state.timer = { ...t, running: true, endsAt: Date.now() + t.remaining };
+  } else if (cmd === 'pause') {
+    if (t.running) state.timer = { ...t, running: false, remaining: t.endsAt - Date.now(), endsAt: null };
+  } else if (cmd === 'reset') {
+    state.timer = { ...t, running: false, remaining: t.duration, endsAt: null };
+  } else if (cmd === 'add') {
+    const ms = Math.round(Number(seconds) || 0) * 1000;
+    state.timer = t.running ? { ...t, endsAt: t.endsAt + ms } : { ...t, remaining: t.remaining + ms };
+  } else {
+    throw Object.assign(new Error(`Unknown timer command ${cmd}`), { code: 404 });
+  }
+  broadcast();
+}
+
+function setStageMessage(text, flash = false) {
+  state.stageMessage = { text: String(text || '').slice(0, 280), flash: !!flash && !!text };
+  broadcast();
+}
+
 async function fireCue(id) {
   const cue = show.cues.find((c) => c.id === id);
   if (!cue) return;
@@ -280,6 +317,10 @@ async function fireCue(id) {
     const result = await presenters.fire(appName, { file, startSlide: Number(cue.startSlide) || 1, auto, bounds: display ? display.bounds : null });
     if (closePrev && !closeFirst) await presenters.close(prev.app, prev.file).catch(() => {});
     state.live = { cueId: id, app: appName, file };
+    const minutes = Number(cue.duration) || 0;
+    if (minutes > 0 && show.settings.timerAutoStart !== false) {
+      state.timer = { duration: minutes * 60000, remaining: minutes * 60000, endsAt: Date.now() + minutes * 60000, running: true };
+    }
     // The PDF player reports its first page before the cue is live, so take it from the result.
     const pdf = appName === 'pdf' && result && result.page ? result : null;
     state.liveDetail = pdf ? `page ${pdf.page}/${pdf.pages}` : null;
@@ -385,7 +426,18 @@ function remoteState() {
   return {
     app: APP_NAME,
     show: show.showName,
-    live: liveCue ? { ...ref(liveCue), app: state.live && state.live.app, slide: state.liveSlide || null, slides: state.liveSlides || null } : null,
+    now: Date.now(), // lets clients correct for clock differences when counting down
+    live: liveCue ? {
+      ...ref(liveCue),
+      app: state.live && state.live.app,
+      slide: state.liveSlide || null,
+      slides: state.liveSlides || null,
+      notes: liveCue.notes || '',
+      // PDF cues can be previewed on the stage display.
+      file: state.live && state.live.app === 'pdf' ? `/api/cue/${encodeURIComponent(liveCue.id)}/file` : null,
+    } : null,
+    timer: { duration: state.timer.duration, remaining: timerRemaining(), running: state.timer.running, endsAt: state.timer.endsAt },
+    stageMessage: state.stageMessage,
     next: ref(nextCue),
     loading: ref(state.busyCueId && show.cues.find((c) => c.id === state.busyCueId)),
     blackout: !!state.blackout,
@@ -438,6 +490,9 @@ function setupIpc() {
   ipcMain.handle('cue:nav', (_e, dir) => navSlide(dir));
   ipcMain.handle('blackout:toggle', () => toggleBlackout());
   ipcMain.handle('message:clear', () => { state.message = null; broadcast(); });
+  ipcMain.handle('timer:cmd', (_e, cmd, seconds) => timerCommand(cmd, seconds));
+  ipcMain.handle('stage:message', (_e, text, flash) => setStageMessage(text, flash));
+  ipcMain.handle('stage:open', (_e, view) => shell.openExternal(`http://127.0.0.1:${prefs.control.httpPort}/stage${view === 'timer' ? '?view=timer' : ''}`));
   ipcMain.handle('files:status', (_e, paths) => Object.fromEntries(paths.map((p) => [p, fs.existsSync(p)])));
   ipcMain.handle('files:resolve', () => { show.cues.forEach((c) => resolveCueFile(c)); return show; });
   ipcMain.handle('files:pick', async () => {
@@ -535,6 +590,14 @@ app.whenReady().then(() => {
       fire: (ref) => { fireCue(cueByRef(ref).id); },
       arm: (ref) => { state.armedCueId = cueByRef(ref).id; broadcast(); },
       armStep,
+      timer: timerCommand,
+      stageMessage: setStageMessage,
+      cueFile: (ref) => {
+        const c = cueByRef(ref);
+        const f = c.file && c.file.path;
+        if (!f || path.extname(f).toLowerCase() !== '.pdf' || !fs.existsSync(f)) throw Object.assign(new Error('No PDF for that cue'), { code: 404 });
+        return f;
+      },
     },
     onStatus: (status) => { if (win && !win.isDestroyed()) win.webContents.send('control-status', status); },
   });

@@ -35,7 +35,15 @@
     <button id="goBtn" class="btn go">GO <small>Space</small></button>
     <button id="prevBtn" class="btn">◀ Slide <small>←</small></button>
     <button id="nextBtn" class="btn">Slide ▶ <small>→</small></button>
-    <div class="spacer"></div>
+    <div class="stagebar" title="Speaker timer and stage message (shown on the stage display)">
+      <input id="timerSet" class="timer-set" placeholder="min" title="Set the timer: 5, 2:30 or 1:00:00, then Return">
+      <div id="timerDisplay" class="timer-display idle">--:--</div>
+      <button id="timerStart" class="btn small" title="Start / pause the timer">▶</button>
+      <button id="timerReset" class="btn small ghost" title="Reset the timer">⟲</button>
+      <input id="stageMsg" class="stage-msg" placeholder="Message to stage…" maxlength="280">
+      <label class="toggle small" title="Flash the message on the stage display"><input type="checkbox" id="stageFlash"><span>⚡</span></label>
+      <button id="stageClear" class="btn small ghost" title="Clear the stage message">✕</button>
+    </div>
     <button id="blackoutBtn" class="btn blackout">BLACKOUT <small>B</small></button>
     <button id="stopBtn" class="btn stop">STOP <small>Esc</small></button>
   </footer>
@@ -67,6 +75,7 @@
       </select>
     </label>
     <label class="row"><span>Start slide</span><input id="edStart" type="number" min="1" value="1"></label>
+    <label class="row"><span>Timer (min)</span><input id="edDuration" type="number" min="0" step="0.5" placeholder="No timer"></label>
     <label class="row"><span>Output</span><select id="edOutput"></select></label>
     <div class="row">
       <span>Shortcut</span>
@@ -100,6 +109,7 @@
       <h3>Changeover</h3>
       <label class="toggle"><input type="checkbox" id="setClosePrev"><span>Close the previous presentation when the next cue starts</span></label>
       <label class="toggle"><input type="checkbox" id="setBackdrop"><span>Show a black backdrop on the output while switching cues</span></label>
+      <label class="toggle"><input type="checkbox" id="setTimerAuto"><span>Start the speaker timer when a cue with a timer fires</span></label>
       <label class="toggle"><input type="checkbox" id="setRefocus"><span>Bring Deck Cue back to the front after a cue starts</span></label>
       <h3>Global shortcuts <small>work while the slideshow is in front · need a modifier key or an F-key</small></h3>
       <div class="global-keys" id="globalKeys"></div>

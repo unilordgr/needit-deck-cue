@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stage · needit Deck Cue</title>
+  <link rel="stylesheet" href="/stage/stage.css">
+</head>
+<body>
+  <div id="message" class="message" hidden></div>
+  <main class="stage">
+    <section class="current">
+      <div class="label"><span class="pill live">LIVE</span> <span id="liveName">Standby</span> <span id="slide" class="slide"></span></div>
+      <div id="currentView" class="view"><div id="currentText" class="big-text">Standby</div></div>
+    </section>
+    <aside class="side">
+      <div class="timer-box">
+        <div id="timer" class="timer idle">--:--</div>
+        <div id="clock" class="clock"></div>
+      </div>
+      <div class="next">
+        <div class="label"><span class="pill next">NEXT</span> <span id="nextLabel"></span></div>
+        <div id="nextView" class="view small"><div id="nextText" class="mid-text"></div></div>
+      </div>
+    </aside>
+    <section class="notes">
+      <div id="notes"></div>
+    </section>
+  </main>
+  <div id="conn" class="conn" title="Connection to Deck Cue"></div>
+  <script type="module" src="/stage/stage.js"></script>
+</body>
+</html>

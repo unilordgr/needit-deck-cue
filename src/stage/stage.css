@@ -1,0 +1,79 @@
+:root {
+  --bg: #050608;
+  --panel: #101318;
+  --line: #222832;
+  --text: #f2f4f7;
+  --muted: #8b93a1;
+  --live: #ff3b3b;
+  --next: #f5b400;
+  --warn: #f5b400;
+  --over: #ff3b3b;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+[hidden] { display: none !important; }
+
+.stage {
+  height: 100vh; padding: 1.2vh 1.2vw; gap: 1.2vh 1.2vw;
+  display: grid; grid-template-columns: 1.7fr 1fr; grid-template-rows: 1fr auto;
+  grid-template-areas: "current side" "notes notes";
+}
+body.has-message .stage { height: calc(100vh - 12vh); }
+
+.stage > *, .side > * { min-width: 0; }
+.current, .side > div, .notes { background: var(--panel); border: 1px solid var(--line); border-radius: 1.2vh; }
+.current { grid-area: current; display: flex; flex-direction: column; min-height: 0; padding: 1.2vh 1.2vw; }
+.side { grid-area: side; display: grid; grid-template-rows: auto 1fr; gap: 1.2vh; min-height: 0; }
+.notes { grid-area: notes; padding: 1.2vh 1.4vw; font-size: clamp(16px, 3.2vh, 40px); line-height: 1.3; max-height: 26vh; overflow: hidden; white-space: pre-wrap; }
+.notes:empty, .notes:has(#notes:empty) { display: none; }
+
+.label { font-size: clamp(14px, 2.6vh, 34px); font-weight: 700; display: flex; align-items: center; gap: .6em; min-width: 0; }
+.label span:not(.pill) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill { font-size: .62em; letter-spacing: .14em; padding: .25em .6em; border-radius: .4em; font-weight: 800; flex: none; }
+.pill.live { background: var(--live); color: #fff; }
+.pill.next { background: var(--next); color: #000; }
+.slide { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; flex: none; }
+
+.view { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; margin-top: 1vh; position: relative; }
+.view canvas { max-width: 100%; max-height: 100%; border-radius: .6vh; box-shadow: 0 0 0 1px var(--line); }
+.big-text { font-size: clamp(28px, 9vh, 140px); font-weight: 800; text-align: center; line-height: 1.05; padding: 0 2vw; }
+.mid-text { font-size: clamp(18px, 4.5vh, 64px); font-weight: 700; text-align: center; color: var(--muted); padding: 0 1vw; }
+
+.timer-box { padding: 1.5vh 1vw; text-align: center; container-type: inline-size; min-width: 0; }
+/* Sized to the box width too, so "+00:00" never overflows (about 4em wide in tabular digits). */
+.timer { font-size: min(17vh, 23cqw, 260px); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; letter-spacing: -.02em; }
+.timer.idle { color: #3a414d; }
+.timer.paused { opacity: .55; }
+.timer.warn { color: var(--warn); }
+.timer.over { color: var(--over); animation: blink 1s steps(2, start) infinite; }
+.clock { font-size: clamp(16px, 4vh, 56px); color: var(--muted); font-variant-numeric: tabular-nums; margin-top: .6vh; }
+.next { display: flex; flex-direction: column; padding: 1.2vh 1vw; min-height: 0; }
+
+.message {
+  height: 12vh; display: flex; align-items: center; justify-content: center; text-align: center;
+  background: #fff; color: #000; font-weight: 800; font-size: clamp(24px, 7vh, 110px); padding: 0 2vw; line-height: 1;
+}
+.message.flash { animation: flash 0.9s steps(2, start) infinite; }
+
+.conn { position: fixed; right: 10px; bottom: 10px; width: 12px; height: 12px; border-radius: 50%; background: #19c26b; }
+.conn.down { background: var(--over); animation: blink 1s steps(2, start) infinite; }
+
+/* ?view=timer: one huge countdown for a dedicated timer monitor */
+body.timer-only .stage { grid-template-columns: 1fr; grid-template-rows: 1fr; grid-template-areas: "side"; }
+body.timer-only .current, body.timer-only .notes, body.timer-only .next { display: none; }
+body.timer-only .side { grid-template-rows: 1fr; }
+body.timer-only .timer-box { display: flex; flex-direction: column; justify-content: center; }
+body.timer-only .timer { font-size: min(23cqw, 60vh); }
+body.timer-only .clock { font-size: 7vh; }
+
+/* Portrait tablets and phones: stack everything */
+@media (max-aspect-ratio: 1/1) {
+  .stage { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto auto; grid-template-areas: "side" "current" "next" "notes"; }
+  .side { display: contents; }
+  .timer-box { grid-area: side; }
+  .next { grid-area: next; }
+  .next .view { display: none; }
+}
+
+@keyframes blink { 50% { opacity: .25; } }
+@keyframes flash { 50% { background: var(--over); color: #fff; } }

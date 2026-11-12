@@ -9,6 +9,16 @@ const GREEN = combineRgb(25, 194, 107)
 const DARK = combineRgb(30, 34, 43)
 const DARK_RED = combineRgb(90, 20, 20)
 
+// 5:00 counts down until a full second has passed; over time shows +0:12.
+function formatTimer(ms) {
+	const over = ms < 0
+	const total = over ? Math.floor(-ms / 1000) : Math.ceil(ms / 1000)
+	const h = Math.floor(total / 3600)
+	const m = Math.floor((total % 3600) / 60)
+	const sec = String(total % 60).padStart(2, '0')
+	return `${over ? '+' : ''}${h ? `${h}:${String(m).padStart(2, '0')}` : String(m).padStart(2, '0')}:${sec}`
+}
+
 function hexToRgb(hex) {
 	const m = /^#?([0-9a-f]{6})$/i.exec(hex || '')
 	if (!m) return null
@@ -23,11 +33,16 @@ class DeckCueInstance extends InstanceBase {
 		this.cueSignature = null
 		this.ws = null
 		this.reconnectTimer = null
+		this.clockOffset = 0
+		this.timerText = null
 		this.buildDefinitions()
 		this.connect()
+		// The timer counts locally between state updates, so it stays smooth without network traffic.
+		this.tickInterval = setInterval(() => this.tickTimer(), 250)
 	}
 
 	async destroy() {
+		clearInterval(this.tickInterval)
 		this.disconnect()
 	}
 
@@ -104,8 +119,29 @@ class DeckCueInstance extends InstanceBase {
 	}
 
 	// ---------- state ----------
+	timerRemaining() {
+		const t = this.state && this.state.timer
+		if (!t) return 0
+		return t.running ? t.endsAt - (Date.now() + this.clockOffset) : t.remaining
+	}
+
+	timerIdle() {
+		const t = this.state && this.state.timer
+		return !t || (!t.running && !t.duration && !t.remaining)
+	}
+
+	tickTimer() {
+		if (!this.state) return
+		const text = this.timerIdle() ? '--:--' : formatTimer(this.timerRemaining())
+		if (text === this.timerText) return
+		this.timerText = text
+		this.setVariableValues({ timer: text, timer_seconds: Math.round(this.timerRemaining() / 1000) })
+		this.checkFeedbacks('timer_warning', 'timer_overtime')
+	}
+
 	applyState(state) {
 		this.state = state
+		if (state.now) this.clockOffset = state.now - Date.now()
 		// Rebuild dropdowns, variables and presets only when the cue list itself changes.
 		const signature = JSON.stringify(state.cues.map((c) => [c.number, c.id, c.name]))
 		if (signature !== this.cueSignature) {
@@ -123,10 +159,14 @@ class DeckCueInstance extends InstanceBase {
 			slides: live && live.slides ? live.slides : '',
 			slide_text: live && live.slide ? `${live.slide}/${live.slides}` : '',
 			blackout: state.blackout ? 'ON' : 'OFF',
+			timer_state: !state.timer ? '' : state.timer.running ? 'running' : this.timerIdle() ? 'idle' : 'paused',
+			stage_message: state.stageMessage ? state.stageMessage.text : '',
 			cue_count: state.cues.length,
 		}
 		for (const c of state.cues) values[`cue_${c.number}_name`] = c.name
 		this.setVariableValues(values)
+		this.timerText = null
+		this.tickTimer()
 		this.checkFeedbacks()
 	}
 
@@ -179,6 +219,42 @@ class DeckCueInstance extends InstanceBase {
 			arm_cue: { name: 'Arm cue (set as next)', options: [cueOption], callback: (a) => this.post(`/api/cue/${ref(a.options)}/arm`) },
 			arm_next: { name: 'Arm next cue', options: [], callback: () => this.post('/api/arm/next') },
 			arm_prev: { name: 'Arm previous cue', options: [], callback: () => this.post('/api/arm/prev') },
+			timer_start: { name: 'Timer: start', options: [], callback: () => this.post('/api/timer/start') },
+			timer_pause: { name: 'Timer: pause', options: [], callback: () => this.post('/api/timer/pause') },
+			timer_toggle: {
+				name: 'Timer: start/pause',
+				options: [],
+				callback: () => this.post(this.state && this.state.timer && this.state.timer.running ? '/api/timer/pause' : '/api/timer/start'),
+			},
+			timer_reset: { name: 'Timer: reset', options: [], callback: () => this.post('/api/timer/reset') },
+			timer_set: {
+				name: 'Timer: set',
+				options: [
+					{ type: 'number', id: 'minutes', label: 'Minutes', default: 5, min: 0, max: 600, step: 0.5 },
+					{ type: 'checkbox', id: 'start', label: 'Start it', default: false },
+				],
+				callback: async (a) => {
+					await this.post(`/api/timer/set?seconds=${Math.round(Number(a.options.minutes) * 60)}`)
+					if (a.options.start) await this.post('/api/timer/start')
+				},
+			},
+			timer_add: {
+				name: 'Timer: add or remove time',
+				options: [{ type: 'number', id: 'minutes', label: 'Minutes (negative removes)', default: 1, min: -600, max: 600, step: 0.5 }],
+				callback: (a) => this.post(`/api/timer/add?seconds=${Math.round(Number(a.options.minutes) * 60)}`),
+			},
+			message_send: {
+				name: 'Stage message: show',
+				options: [
+					{ type: 'textinput', id: 'text', label: 'Message', default: 'WRAP UP', useVariables: true },
+					{ type: 'checkbox', id: 'flash', label: 'Flash', default: false },
+				],
+				callback: async (a, context) => {
+					const text = await context.parseVariablesInString(a.options.text)
+					await this.post(`/api/message?text=${encodeURIComponent(text)}&flash=${a.options.flash ? 1 : 0}`)
+				},
+			},
+			message_clear: { name: 'Stage message: clear', options: [], callback: () => this.post('/api/message/clear') },
 		})
 
 		const cueState = (o, wanted) => {
@@ -231,6 +307,38 @@ class DeckCueInstance extends InstanceBase {
 				options: [],
 				callback: () => !!(this.state && this.state.live),
 			},
+			timer_running: {
+				type: 'boolean',
+				name: 'Timer is running',
+				defaultStyle: { bgcolor: GREEN, color: BLACK },
+				options: [],
+				callback: () => !!(this.state && this.state.timer && this.state.timer.running),
+			},
+			timer_warning: {
+				type: 'boolean',
+				name: 'Timer is nearly done',
+				defaultStyle: { bgcolor: YELLOW, color: BLACK },
+				options: [{ type: 'number', id: 'seconds', label: 'When this many seconds or fewer are left', default: 120, min: 1, max: 3600 }],
+				callback: (f) => {
+					if (this.timerIdle()) return false
+					const left = this.timerRemaining()
+					return left >= 0 && left <= Number(f.options.seconds) * 1000
+				},
+			},
+			timer_overtime: {
+				type: 'boolean',
+				name: 'Timer is over time',
+				defaultStyle: { bgcolor: RED, color: WHITE },
+				options: [],
+				callback: () => !this.timerIdle() && this.timerRemaining() < 0,
+			},
+			message_showing: {
+				type: 'boolean',
+				name: 'Stage message is showing',
+				defaultStyle: { bgcolor: WHITE, color: BLACK },
+				options: [],
+				callback: () => !!(this.state && this.state.stageMessage && this.state.stageMessage.text),
+			},
 			cue_color: {
 				type: 'advanced',
 				name: 'Cue colour (from Deck Cue)',
@@ -254,6 +362,10 @@ class DeckCueInstance extends InstanceBase {
 			{ variableId: 'slide_text', name: 'Slide as text, e.g. 3/12' },
 			{ variableId: 'blackout', name: 'Blackout (ON/OFF)' },
 			{ variableId: 'cue_count', name: 'Number of cues' },
+			{ variableId: 'timer', name: 'Speaker timer (e.g. 04:59, +00:12 when over)' },
+			{ variableId: 'timer_seconds', name: 'Speaker timer in seconds (negative when over)' },
+			{ variableId: 'timer_state', name: 'Timer state (running/paused/idle)' },
+			{ variableId: 'stage_message', name: 'Stage message' },
 			...cues.map((c) => ({ variableId: `cue_${c.number}_name`, name: `Cue ${c.number} name` })),
 		]
 		this.setVariableDefinitions(variables)
@@ -286,6 +398,24 @@ class DeckCueInstance extends InstanceBase {
 		}
 		// The live display preset shouldn't stop the show when pressed.
 		presets.live_display.steps = [{ down: [], up: [] }]
+
+		presets.timer_display = button('Timer', 'Timer (start/pause)', v('timer'), 'timer_toggle', {}, { size: '24' }, [
+			{ feedbackId: 'timer_running', options: {}, style: { bgcolor: combineRgb(10, 60, 30), color: WHITE } },
+			{ feedbackId: 'timer_warning', options: { seconds: 120 }, style: { bgcolor: YELLOW, color: BLACK } },
+			{ feedbackId: 'timer_overtime', options: {}, style: { bgcolor: RED, color: WHITE } },
+		])
+		presets.timer_reset = button('Timer', 'Timer reset', 'TIMER\\nRESET', 'timer_reset', {}, {})
+		for (const min of [5, 10, 15, 20, 30]) {
+			presets[`timer_set_${min}`] = button('Timer', `Set ${min} min`, `${min} MIN`, 'timer_set', { minutes: min, start: false }, {})
+		}
+		presets.timer_add_1 = button('Timer', 'Add 1 minute', '+1 MIN', 'timer_add', { minutes: 1 }, {})
+		presets.timer_sub_1 = button('Timer', 'Remove 1 minute', '−1 MIN', 'timer_add', { minutes: -1 }, {})
+		for (const [id, text, flash] of [['wrap', 'WRAP UP', true], ['five', '5 MIN', false], ['one', '1 MIN', true], ['louder', 'LOUDER', false], ['mic', 'CHECK MIC', true]]) {
+			presets[`msg_${id}`] = button('Stage messages', `Message: ${text}`, text, 'message_send', { text, flash }, {}, [
+				{ feedbackId: 'message_showing', options: {}, style: { bgcolor: WHITE, color: BLACK } },
+			])
+		}
+		presets.msg_clear = button('Stage messages', 'Clear message', 'CLEAR\\nMSG', 'message_clear', {}, { bgcolor: DARK_RED })
 
 		for (const c of cues) {
 			const options = { cue: String(c.number) }

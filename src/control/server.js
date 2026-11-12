@@ -6,19 +6,39 @@
 //        POST /api/blackout[?state=on|off] (toggle without state)
 //        POST /api/cue/<number|id>/fire | /api/cue/<number|id>/arm
 //        POST /api/arm/next | /api/arm/prev
+//        POST /api/timer/start | pause | reset, /api/timer/set?seconds=N, /api/timer/add?seconds=N
+//        POST /api/message?text=...&flash=1, /api/message/clear
+//        GET  /api/cue/<ref>/file             the cue's PDF (for stage display previews)
+//        GET  /stage                           stage display / confidence monitor page
 // WS     /api/ws                          sends {type:"state", state} on connect and on every change
 // OSC    /deckcue/go, /stop, /next, /prev, /blackout [0|1], /cue/fire <n|id>, /cue/arm <n|id>,
-//        /cue/<n>/fire, /cue/<n>/arm, /arm/next, /arm/prev, /state (replies to the sender)
+//        /cue/<n>/fire, /cue/<n>/arm, /arm/next, /arm/prev, /state (replies to the sender),
+//        /timer/start, /timer/pause, /timer/reset, /timer/set <seconds>, /timer/add <seconds>,
+//        /message <text> [flash 0|1], /message/clear
 //        Feedback to the configured host:port and to /state requesters:
 //        /deckcue/live/number i, /live/name s, /next/number i, /next/name s, /blackout i,
 //        /slide i i, /cue/<n>/state s ("live" | "next" | "loading" | "missing" | "idle")
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const dgram = require('dgram');
 const os = require('os');
 const { WebSocketServer } = require('ws');
 const osc = require('./osc');
 
 const PREFIX = '/deckcue';
+
+// Static files for the stage display. Only these exact paths are served.
+const STAGE_DIR = path.join(__dirname, '..', 'stage');
+const PDFJS_DIR = path.dirname(require.resolve('pdfjs-dist/package.json'));
+const STATIC = {
+  '/stage': [path.join(STAGE_DIR, 'index.html'), 'text/html; charset=utf-8'],
+  '/stage/': [path.join(STAGE_DIR, 'index.html'), 'text/html; charset=utf-8'],
+  '/stage/stage.js': [path.join(STAGE_DIR, 'stage.js'), 'text/javascript; charset=utf-8'],
+  '/stage/stage.css': [path.join(STAGE_DIR, 'stage.css'), 'text/css; charset=utf-8'],
+  '/stage/pdf.min.mjs': [path.join(PDFJS_DIR, 'build', 'pdf.min.mjs'), 'text/javascript; charset=utf-8'],
+  '/stage/pdf.worker.min.mjs': [path.join(PDFJS_DIR, 'build', 'pdf.worker.min.mjs'), 'text/javascript; charset=utf-8'],
+};
 
 function createControlServer({ getState, actions, onStatus }) {
   let config = null;
@@ -46,6 +66,8 @@ function createControlServer({ getState, actions, onStatus }) {
       case 'arm': return actions.arm(arg);
       case 'arm-next': return actions.armStep(1);
       case 'arm-prev': return actions.armStep(-1);
+      case 'timer': return actions.timer(arg.cmd, arg.seconds);
+      case 'message': return actions.stageMessage(arg.text, arg.flash);
       default: throw Object.assign(new Error(`Unknown action ${action}`), { code: 404 });
     }
   }
@@ -61,6 +83,7 @@ function createControlServer({ getState, actions, onStatus }) {
     if (parts[0] !== 'api') return null;
     const [, a, b, c] = parts;
     if (method === 'GET' && a === 'state' && !b) return { state: true };
+    if (method === 'GET' && a === 'cue' && b && c === 'file') return { file: decodeURIComponent(b) };
     if (method !== 'POST') return null;
     if (['go', 'stop', 'next', 'prev'].includes(a) && !b) return { action: a };
     if (a === 'blackout' && !b) {
@@ -69,14 +92,29 @@ function createControlServer({ getState, actions, onStatus }) {
     }
     if (a === 'cue' && b && (c === 'fire' || c === 'arm')) return { action: c, arg: decodeURIComponent(b) };
     if (a === 'arm' && (b === 'next' || b === 'prev') && !c) return { action: `arm-${b}` };
+    if (a === 'timer' && ['start', 'pause', 'reset', 'set', 'add'].includes(b) && !c) return { action: 'timer', arg: { cmd: b, seconds: query.get('seconds') } };
+    if (a === 'message' && !b) return { action: 'message', arg: { text: query.get('text') || '', flash: ['1', 'true', 'on'].includes(query.get('flash')) } };
+    if (a === 'message' && b === 'clear' && !c) return { action: 'message', arg: { text: '', flash: false } };
     return null;
+  }
+
+  function sendFile(res, file, type) {
+    fs.stat(file, (err, st) => {
+      if (err) return send(res, 404, { ok: false, error: 'Not found' });
+      res.writeHead(200, { 'Content-Type': type, 'Content-Length': st.size, 'Cache-Control': 'no-store' });
+      fs.createReadStream(file).pipe(res);
+    });
   }
 
   function onRequest(req, res) {
     const url = new URL(req.url, 'http://localhost');
+    if (req.method === 'GET' && STATIC[url.pathname]) return sendFile(res, ...STATIC[url.pathname]);
     const r = route(req.method, url.pathname, url.searchParams);
     if (!r) return send(res, 404, { ok: false, error: 'Not found' });
     if (r.state) return send(res, 200, getState());
+    if (r.file) {
+      try { return sendFile(res, actions.cueFile(r.file), 'application/pdf'); } catch (e) { return send(res, e.code || 400, { ok: false, error: e.message }); }
+    }
     Promise.resolve()
       .then(() => run(r.action, r.arg))
       .then(() => send(res, 200, { ok: true }))
@@ -104,6 +142,9 @@ function createControlServer({ getState, actions, onStatus }) {
         else if (parts[0] === 'cue' && (parts[1] === 'fire' || parts[1] === 'arm') && parts.length === 2) run(parts[1], oscCueArg(args));
         else if (parts[0] === 'cue' && (parts[2] === 'fire' || parts[2] === 'arm') && parts.length === 3) run(parts[2], parts[1]);
         else if (parts[0] === 'arm' && (parts[1] === 'next' || parts[1] === 'prev') && parts.length === 2) run(`arm-${parts[1]}`);
+        else if (parts[0] === 'timer' && ['start', 'pause', 'reset', 'set', 'add'].includes(parts[1]) && parts.length === 2) run('timer', { cmd: parts[1], seconds: args[0] });
+        else if (parts[0] === 'message' && parts.length === 1) run('message', { text: args.length ? String(args[0]) : '', flash: args.length > 1 && Boolean(args[1]) });
+        else if (parts[0] === 'message' && parts[1] === 'clear' && parts.length === 2) run('message', { text: '', flash: false });
       } catch { /* ignore bad OSC input */ }
     }
   }
