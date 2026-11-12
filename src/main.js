@@ -9,8 +9,14 @@ if (process.env.PORTABLE_EXECUTABLE_DIR) {
   app.setPath('userData', path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'needit Deck Cue Data'));
 }
 
+// A second copy on the same computer (e.g. testing main + backup) needs its own settings: --profile=name.
+const profileArg = process.argv.find((a) => a.startsWith('--profile='));
+const PROFILE = (profileArg ? profileArg.slice('--profile='.length) : process.env.DECKCUE_PROFILE || '').replace(/[^\w-]/g, '');
+if (PROFILE) app.setPath('userData', `${app.getPath('userData')} (${PROFILE})`);
+
 const presenters = require('./presenters');
 const { createControlServer, localAddresses } = require('./control/server');
+const { createFollower } = require('./control/follower');
 
 let win = null;
 let show = null;
@@ -19,8 +25,17 @@ let dirty = false;
 let shortcutReport = {};
 // Per-machine settings (not part of the show file).
 const DEFAULT_CONTROL = { enabled: true, allowNetwork: false, httpPort: 9640, oscPort: 9641, oscFeedbackHost: '', oscFeedbackPort: 9642 };
-let prefs = { control: { ...DEFAULT_CONTROL } };
+// Main/backup: a backup follows the main machine's cues, slides, blackout, timer and messages.
+const DEFAULT_SYNC = { role: 'standalone', mainHost: '', mainPort: 9640, mirrorBlackout: true, mirrorTimer: true };
+let prefs = { control: { ...DEFAULT_CONTROL }, sync: { ...DEFAULT_SYNC } };
 let control = null;
+let follower = null;
+let followers = [];       // names of backups following this machine
+let lastFollowAction = 0; // when the backup last fired/stopped to follow the main (debounces state checks)
+let lastBlackoutSync = 0;
+// After the link to the main drops, the backup may be the one on screen. Don't let a restarted main (with
+// nothing live) stop it: hold until the main does something deliberate (any event).
+let followHeld = false;
 const state = {
   liveCueId: null, live: null, armedCueId: null, busyCueId: null, blackout: false, message: null, messageLevel: null,
   // Speaker countdown: while running, endsAt is the wall-clock end; while paused, remaining holds the time left.
@@ -75,7 +90,7 @@ function autosave() {
 
 function loadInitial() {
   const saved = readJSON(userFile('prefs.json')) || {};
-  prefs = { ...saved, control: { ...DEFAULT_CONTROL, ...(saved.control || {}) } };
+  prefs = { ...saved, control: { ...DEFAULT_CONTROL, ...(saved.control || {}) }, sync: { ...DEFAULT_SYNC, ...(saved.sync || {}) } };
   const auto = readJSON(userFile('autosave.deckcue'));
   show = normalizeShow(auto || defaultShow());
   showPath = saved.showPath && fs.existsSync(saved.showPath) ? saved.showPath : null;
@@ -221,6 +236,7 @@ function toggleBlackout() {
     if (!targets.length) return setMessage('Blackout needs an output display (only the main display is connected).', 'warn');
     showBlack(targets); state.blackout = true;
   }
+  emit({ type: 'blackout', on: state.blackout });
   broadcast();
 }
 
@@ -268,6 +284,7 @@ async function fireCue(id) {
   const cue = show.cues.find((c) => c.id === id);
   if (!cue) return;
   if (state.busyCueId) return setMessage('Another cue is still loading…', 'warn');
+  emit({ type: 'fire', cueId: cue.id, number: show.cues.indexOf(cue) + 1, name: cueName(cue) });
   const file = resolveCueFile(cue);
   if (!file) return setMessage(`Cue “${cueName(cue)}”: file is missing (${cue.file ? cue.file.path : 'no file'})`, 'error');
 
@@ -351,12 +368,14 @@ function go() {
 }
 
 async function stopAll() {
+  emit({ type: 'stop' });
   await Promise.all(Object.keys(presenters.APPS).map((a) => presenters.stop(a).catch(() => {})));
   state.liveCueId = null; state.live = null; registerShortcuts(); broadcast();
 }
 
 async function navSlide(dir) {
   if (!state.live) return setMessage('Nothing is live.', 'warn');
+  emit({ type: 'nav', dir });
   try { await presenters.nav(state.live.app, dir); } catch (e) { setMessage(`Slide ${dir} failed: ${e.message}`, 'error'); }
 }
 
@@ -411,12 +430,169 @@ function cueByRef(ref) {
   return cue;
 }
 
+function setArmed(id) {
+  state.armedCueId = id;
+  emit({ type: 'arm', cueId: id });
+  broadcast();
+}
+
+// ---------- main / backup sync ----------
+function emit(ev) {
+  if (control) control.event(ev);
+}
+
+// The backup's cue for one of the main's: same id (same show file), else same number and name, else same number.
+function localCueFor(remote) {
+  if (!remote) return null;
+  return show.cues.find((c) => c.id === (remote.id || remote.cueId))
+    || show.cues.find((c, i) => i + 1 === remote.number && cueName(c) === remote.name)
+    || show.cues[remote.number - 1] || null;
+}
+
+function isBackup() {
+  return prefs.sync.role === 'backup';
+}
+
+function onMainEvent(ev) {
+  if (!isBackup()) return;
+  if (followHeld) { followHeld = false; sendSync(); }
+  if (process.env.DECKCUE_DEBUG) console.log(`[sync] main event ${JSON.stringify(ev)}`);
+  if (ev.type === 'fire') {
+    const cue = localCueFor(ev);
+    if (!cue) return setMessage(`Main fired cue ${ev.number} “${ev.name}”, which this backup doesn't have.`, 'error');
+    lastFollowAction = Date.now();
+    fireCue(cue.id);
+  } else if (ev.type === 'stop') {
+    lastFollowAction = Date.now();
+    stopAll();
+  } else if (ev.type === 'nav') {
+    if (state.live) navSlide(ev.dir);
+  } else if (ev.type === 'blackout') {
+    if (prefs.sync.mirrorBlackout) setBlackout(ev.on);
+  } else if (ev.type === 'arm') {
+    const cue = show.cues.find((c) => c.id === ev.cueId);
+    if (cue) { state.armedCueId = cue.id; broadcast(); }
+  }
+}
+
+// State comparison catches anything the events missed (a backup that connects mid-show, a cue that was
+// still loading when the next one fired, a clicker that went straight to the main's PDF player).
+function onMainState(main) {
+  if (!isBackup()) return;
+  let changed = false;
+  if (!followHeld && prefs.sync.mirrorTimer) {
+    const offset = (main.now || Date.now()) - Date.now();
+    state.timer = { ...main.timer, endsAt: main.timer.endsAt ? main.timer.endsAt - offset : null };
+    state.stageMessage = main.stageMessage || { text: '', flash: false };
+    changed = true;
+  }
+  const want = main.live ? localCueFor(main.live) : null;
+  const settled = !followHeld && !main.loading && !state.busyCueId && Date.now() - lastFollowAction > 4000;
+  if (settled) {
+    if (main.live && want && state.liveCueId !== want.id) {
+      lastFollowAction = Date.now();
+      fireCue(want.id);
+    } else if (!main.live && state.live) {
+      lastFollowAction = Date.now();
+      stopAll();
+    } else if (want && main.live.slide && state.live && state.live.app === 'pdf' && state.liveSlide !== main.live.slide) {
+      presenters.pdfPlayer.goto(main.live.slide);
+    }
+  }
+  if (!followHeld && prefs.sync.mirrorBlackout && main.blackout !== state.blackout && Date.now() - lastBlackoutSync > 4000) {
+    lastBlackoutSync = Date.now();
+    setBlackout(main.blackout);
+  }
+  const next = main.next ? localCueFor(main.next) : null;
+  if (!followHeld && next && state.armedCueId !== next.id) { state.armedCueId = next.id; changed = true; }
+  // Tell the operator when the two shows don't line up.
+  const diffs = main.cues.filter((rc) => {
+    const c = show.cues[rc.number - 1];
+    return !c || cueName(c) !== rc.name;
+  }).map((rc) => rc.number);
+  const extra = show.cues.length - main.cues.length;
+  const issue = diffs.length || extra > 0
+    ? `Backup show differs from main${diffs.length ? ` (cue ${diffs.slice(0, 5).join(', ')}${diffs.length > 5 ? '…' : ''})` : ''}${extra > 0 ? ` (${extra} extra cue${extra > 1 ? 's' : ''} here)` : ''}. Use “Copy show from main”.`
+    : null;
+  if (issue !== state.syncIssue) {
+    state.syncIssue = issue;
+    changed = true;
+    if (process.env.DECKCUE_DEBUG) console.log(`[sync] issue: ${issue}`);
+    sendSync();
+  }
+  if (changed) broadcast();
+}
+
+function syncStatus() {
+  return {
+    role: prefs.sync.role,
+    link: follower ? follower.getStatus() : { state: 'off' },
+    followers,
+    issue: isBackup() ? state.syncIssue || null : null,
+    held: isBackup() && followHeld,
+  };
+}
+
+function sendSync() {
+  if (win && !win.isDestroyed()) win.webContents.send('sync', syncStatus());
+  updateTitle();
+}
+
+function startSync() {
+  followHeld = false;
+  if (isBackup() && prefs.sync.mainHost) follower.start(prefs.sync.mainHost, prefs.sync.mainPort);
+  else follower.stop();
+  if (!isBackup()) state.syncIssue = null;
+  sendSync();
+}
+
+// Replace this computer's show with the main's. Files are expected in the same place, or under a folder
+// the operator picks (matched by file name), since the show folder is usually copied to both machines.
+async function pullShowFromMain() {
+  const { mainHost, mainPort } = prefs.sync;
+  if (!mainHost) throw new Error('Set the main computer first.');
+  const res = await fetch(`http://${mainHost}:${mainPort}/api/show`, { signal: AbortSignal.timeout(5000) });
+  if (!res.ok) throw new Error(`Main answered ${res.status}`);
+  const pulled = normalizeShow(await res.json());
+  const r = await dialog.showMessageBox(win, {
+    type: 'warning', buttons: ['Replace', 'Cancel'], defaultId: 0, cancelId: 1,
+    message: `Replace this computer's show with the main's “${pulled.showName}” (${pulled.cues.length} cues)?`,
+  });
+  if (r.response !== 0) return { replaced: false };
+  const missing = () => pulled.cues.filter((c) => c.file && c.file.path && !fs.existsSync(c.file.path));
+  const relinkFrom = (dir, depth = 4) => {
+    const want = new Map(missing().map((c) => [path.basename(c.file.path), c]));
+    const walk = (d, level) => {
+      if (!want.size || level > depth) return;
+      let entries = [];
+      try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        const full = path.join(d, e.name);
+        if (e.isDirectory() && !e.name.startsWith('.')) walk(full, level + 1);
+        else if (want.has(e.name)) { want.get(e.name).file.path = full; want.delete(e.name); }
+      }
+    };
+    walk(dir, 0);
+  };
+  if (missing().length && showPath) relinkFrom(path.dirname(showPath));
+  if (missing().length) {
+    const pick = await dialog.showOpenDialog(win, {
+      message: `${missing().length} file(s) aren't at the same place on this computer. Choose the folder that holds the show files.`,
+      properties: ['openDirectory'],
+    });
+    if (!pick.canceled && pick.filePaths[0]) relinkFrom(pick.filePaths[0]);
+  }
+  show = pulled; showPath = null; dirty = true;
+  state.liveCueId = null; state.live = null;
+  autosave(); registerShortcuts(); sendShow(); broadcast();
+  return { replaced: true, missing: missing().length };
+}
+
 function armStep(delta) {
   if (!show.cues.length) return;
   const i = show.cues.findIndex((c) => c.id === state.armedCueId);
   const n = Math.min(show.cues.length - 1, Math.max(0, (i < 0 ? 0 : i + delta)));
-  state.armedCueId = show.cues[n].id;
-  broadcast();
+  setArmed(show.cues[n].id);
 }
 
 function remoteState() {
@@ -436,6 +612,7 @@ function remoteState() {
       // PDF cues can be previewed on the stage display.
       file: state.live && state.live.app === 'pdf' ? `/api/cue/${encodeURIComponent(liveCue.id)}/file` : null,
     } : null,
+    role: prefs.sync.role,
     timer: { duration: state.timer.duration, remaining: timerRemaining(), running: state.timer.running, endsAt: state.timer.endsAt },
     stageMessage: state.stageMessage,
     next: ref(nextCue),
@@ -467,7 +644,8 @@ function broadcast() {
 
 function updateTitle() {
   if (!win) return;
-  win.setTitle(`${APP_NAME} — ${showPath ? path.basename(showPath) : show.showName}${dirty ? ' •' : ''}`);
+  const role = prefs.sync.role === 'main' ? ' [MAIN]' : prefs.sync.role === 'backup' ? ' [BACKUP]' : '';
+  win.setTitle(`${APP_NAME}${PROFILE ? ` (${PROFILE})` : ''}${role} — ${showPath ? path.basename(showPath) : show.showName}${dirty ? ' •' : ''}`);
   if (IS_MAC) win.setDocumentEdited(dirty);
 }
 
@@ -484,12 +662,22 @@ function setupIpc() {
   ipcMain.handle('displays:list', () => listDisplays());
   ipcMain.handle('displays:identify', () => identifyDisplays());
   ipcMain.handle('cue:fire', (_e, id) => fireCue(id));
-  ipcMain.handle('cue:arm', (_e, id) => { state.armedCueId = id; broadcast(); });
+  ipcMain.handle('cue:arm', (_e, id) => setArmed(id));
   ipcMain.handle('cue:go', () => go());
   ipcMain.handle('cue:stop', () => stopAll());
   ipcMain.handle('cue:nav', (_e, dir) => navSlide(dir));
   ipcMain.handle('blackout:toggle', () => toggleBlackout());
   ipcMain.handle('message:clear', () => { state.message = null; broadcast(); });
+  ipcMain.handle('sync:get', () => ({ config: prefs.sync, status: syncStatus() }));
+  ipcMain.handle('sync:set', (_e, config) => {
+    prefs.sync = { ...DEFAULT_SYNC, ...config };
+    autosave();
+    startSync();
+    return { config: prefs.sync, status: syncStatus() };
+  });
+  ipcMain.handle('sync:pull', async () => {
+    try { return await pullShowFromMain(); } catch (e) { return { error: e.message }; }
+  });
   ipcMain.handle('timer:cmd', (_e, cmd, seconds) => timerCommand(cmd, seconds));
   ipcMain.handle('stage:message', (_e, text, flash) => setStageMessage(text, flash));
   ipcMain.handle('stage:open', (_e, view) => shell.openExternal(`http://127.0.0.1:${prefs.control.httpPort}/stage${view === 'timer' ? '?view=timer' : ''}`));
@@ -580,15 +768,27 @@ app.whenReady().then(() => {
     if (state.live && state.live.app === 'pdf') { state.live = null; state.liveCueId = null; state.liveDetail = null; registerShortcuts(); broadcast(); }
   });
   loadInitial();
+  follower = createFollower({
+    onEvent: onMainEvent,
+    onState: onMainState,
+    onStatus: (st) => {
+      if (st.state === 'lost') followHeld = true;
+      if (process.env.DECKCUE_DEBUG) console.log(`[sync] link ${st.state}${followHeld ? ' (held)' : ''}`);
+      sendSync();
+      broadcast();
+    },
+  });
   control = createControlServer({
     getState: remoteState,
+    getShow: () => show,
+    onFollowers: (names) => { followers = names; sendSync(); },
     actions: {
       go,
       stop: stopAll,
       nav: navSlide,
       blackout: setBlackout,
       fire: (ref) => { fireCue(cueByRef(ref).id); },
-      arm: (ref) => { state.armedCueId = cueByRef(ref).id; broadcast(); },
+      arm: (ref) => setArmed(cueByRef(ref).id),
       armStep,
       timer: timerCommand,
       stageMessage: setStageMessage,
@@ -606,11 +806,15 @@ app.whenReady().then(() => {
   createWindow();
   registerShortcuts();
   startControl();
+  startSync();
+  // While a backup is connected, re-send the state every few seconds so it can correct any drift
+  // (e.g. its own clicker moved a slide) even when nothing changes on the main.
+  setInterval(() => { if (followers.length && control) control.update(); }, 3000);
   const onDisplays = () => { if (win) win.webContents.send('displays', listDisplays()); };
   screen.on('display-added', onDisplays);
   screen.on('display-removed', onDisplays);
   screen.on('display-metrics-changed', onDisplays);
 });
 
-app.on('will-quit', () => { globalShortcut.unregisterAll(); hideBlack(); if (control) control.stop(); });
+app.on('will-quit', () => { globalShortcut.unregisterAll(); hideBlack(); if (control) control.stop(); if (follower) follower.stop(); });
 app.on('window-all-closed', () => app.quit());

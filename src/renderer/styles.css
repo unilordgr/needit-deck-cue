@@ -82,6 +82,10 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
 .statusbar b { font-size: 11px; letter-spacing: .1em; margin-right: 6px; }
 .status-live b { color: var(--live); }
 .status-armed b { color: var(--armed); }
+.sync-badge { padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.sync-badge.ok { background: #0f2e1d; color: #6be3a0; }
+.sync-badge.warn { background: #3a2f0b; color: #ffd66b; }
+.sync-badge.bad { background: var(--live); color: #fff; animation: pulse 1s infinite; }
 .message { margin-left: auto; padding: 3px 10px; border-radius: 6px; cursor: pointer; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .message.info { background: #1b2a44; color: #b7d0ff; }
 .message.warn { background: #3a2f0b; color: #ffd66b; }

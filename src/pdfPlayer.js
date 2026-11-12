@@ -97,6 +97,11 @@ function nav(dir) {
   command({ type: 'nav', dir });
 }
 
+function goto(page) {
+  if (!win) return 'no show';
+  command({ type: 'goto', page });
+}
+
 function stop() {
   if (win && !win.isDestroyed()) win.close();
 }
@@ -106,4 +111,4 @@ function close(file) {
   if (current && current.file === file) stop();
 }
 
-module.exports = { on, show, nav, stop, close, isOpen: () => !!win };
+module.exports = { on, show, nav, goto, stop, close, isOpen: () => !!win };

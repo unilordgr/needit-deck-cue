@@ -10,7 +10,11 @@
 //        POST /api/message?text=...&flash=1, /api/message/clear
 //        GET  /api/cue/<ref>/file             the cue's PDF (for stage display previews)
 //        GET  /stage                           stage display / confidence monitor page
-// WS     /api/ws                          sends {type:"state", state} on connect and on every change
+//        GET  /api/show                        the show file (cues and settings), for a backup to copy
+// WS     /api/ws                          sends {type:"state", state} on connect and on every change, and
+//                                         {type:"event", event} the moment an action happens (fire, stop,
+//                                         nav, blackout, arm), so a backup machine can follow in step.
+//                                         A backup connects with ?role=backup&name=<computer name>.
 // OSC    /deckcue/go, /stop, /next, /prev, /blackout [0|1], /cue/fire <n|id>, /cue/arm <n|id>,
 //        /cue/<n>/fire, /cue/<n>/arm, /arm/next, /arm/prev, /state (replies to the sender),
 //        /timer/start, /timer/pause, /timer/reset, /timer/set <seconds>, /timer/add <seconds>,
@@ -40,7 +44,7 @@ const STATIC = {
   '/stage/pdf.worker.min.mjs': [path.join(PDFJS_DIR, 'build', 'pdf.worker.min.mjs'), 'text/javascript; charset=utf-8'],
 };
 
-function createControlServer({ getState, actions, onStatus }) {
+function createControlServer({ getState, getShow, actions, onStatus, onFollowers }) {
   let config = null;
   let httpServer = null;
   let wss = null;
@@ -83,6 +87,7 @@ function createControlServer({ getState, actions, onStatus }) {
     if (parts[0] !== 'api') return null;
     const [, a, b, c] = parts;
     if (method === 'GET' && a === 'state' && !b) return { state: true };
+    if (method === 'GET' && a === 'show' && !b) return { show: true };
     if (method === 'GET' && a === 'cue' && b && c === 'file') return { file: decodeURIComponent(b) };
     if (method !== 'POST') return null;
     if (['go', 'stop', 'next', 'prev'].includes(a) && !b) return { action: a };
@@ -112,6 +117,7 @@ function createControlServer({ getState, actions, onStatus }) {
     const r = route(req.method, url.pathname, url.searchParams);
     if (!r) return send(res, 404, { ok: false, error: 'Not found' });
     if (r.state) return send(res, 200, getState());
+    if (r.show) return send(res, 200, getShow());
     if (r.file) {
       try { return sendFile(res, actions.cueFile(r.file), 'application/pdf'); } catch (e) { return send(res, e.code || 400, { ok: false, error: e.message }); }
     }
@@ -187,6 +193,7 @@ function createControlServer({ getState, actions, onStatus }) {
   // ---------- lifecycle ----------
   function stop() {
     if (wss) { for (const c of wss.clients) c.terminate(); wss.close(); wss = null; }
+    onFollowers([]);
     if (httpServer) { httpServer.close(); httpServer = null; }
     if (udp) { udp.close(); udp = null; }
     lastOsc = new Map();
@@ -203,7 +210,15 @@ function createControlServer({ getState, actions, onStatus }) {
     wss = new WebSocketServer({ noServer: true });
     httpServer.on('upgrade', (req, socket, head) => {
       if (new URL(req.url, 'http://localhost').pathname !== '/api/ws') return socket.destroy();
-      wss.handleUpgrade(req, socket, head, (ws) => ws.send(JSON.stringify({ type: 'state', state: getState() })));
+      const url = new URL(req.url, 'http://localhost');
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        if (url.searchParams.get('role') === 'backup') {
+          ws.backupName = (url.searchParams.get('name') || req.socket.remoteAddress || 'backup').slice(0, 64);
+          ws.on('close', reportFollowers);
+          reportFollowers();
+        }
+        ws.send(JSON.stringify({ type: 'state', state: getState() }));
+      });
     });
     httpServer.on('error', (e) => setStatus({ http: `error: ${e.code === 'EADDRINUSE' ? `port ${config.httpPort} is in use` : e.message}` }));
     httpServer.listen(Number(config.httpPort), host, () => setStatus({ http: `listening on ${host}:${config.httpPort}` }));
@@ -212,6 +227,18 @@ function createControlServer({ getState, actions, onStatus }) {
     udp.on('message', onOsc);
     udp.on('error', (e) => setStatus({ osc: `error: ${e.code === 'EADDRINUSE' ? `port ${config.oscPort} is in use` : e.message}` }));
     udp.bind(Number(config.oscPort), host, () => setStatus({ osc: `listening on ${host}:${config.oscPort}` }));
+  }
+
+  function reportFollowers() {
+    if (!wss) return onFollowers([]);
+    onFollowers([...wss.clients].filter((c) => c.backupName && c.readyState === 1).map((c) => c.backupName));
+  }
+
+  // Sent the moment an action happens on this machine (before it finishes), for backups to follow.
+  function event(ev) {
+    if (!wss) return;
+    const msg = JSON.stringify({ type: 'event', event: ev });
+    for (const c of wss.clients) if (c.readyState === 1) c.send(msg);
   }
 
   // Called by the app whenever cues, live/next cue, slide or blackout change.
@@ -234,7 +261,7 @@ function createControlServer({ getState, actions, onStatus }) {
     }
   }
 
-  return { start, stop, update, getStatus: () => status };
+  return { start, stop, update, event, getStatus: () => status };
 }
 
 // Addresses another computer on the network can use to reach this one.

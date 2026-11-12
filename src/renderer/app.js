@@ -245,12 +245,77 @@ function renderSettings() {
       ${shortcutReport[k] ? `<div class="note bad">${esc(shortcutReport[k])}</div>` : ''}`;
   }).join('');
   renderRemote();
+  renderSync();
   $('envInfo').innerHTML = `
     ${(env.apps || []).map((a) => `<div>${esc(a.name)}: ${a.installed ? '<span class="ok">installed</span>' : '<span class="bad">not found</span>'}</div>`).join('')}
     ${IS_MAC ? `<div>Accessibility (needed for WPS Office, and to send slideshows to a chosen output): ${env.accessibility ? '<span class="ok">allowed</span>' : '<span class="bad">not allowed</span> <button class="btn small" id="grantAx">Open settings</button>'}</div>
     <div style="color:var(--muted);font-size:12px">The first time a cue fires, macOS asks to let Deck Cue control your presentation app. Click OK.</div>` : ''}`;
   const g = $('grantAx');
   if (g) g.onclick = () => api.requestAccessibility();
+}
+
+// ---------- main / backup ----------
+let sync = null; // { config, status }
+
+function renderSyncBadge() {
+  const el = $('syncBadge');
+  const st = sync && sync.status;
+  if (!st || st.role === 'standalone') { el.hidden = true; return; }
+  el.hidden = false;
+  let text;
+  let level;
+  if (st.role === 'main') {
+    text = st.followers.length ? `MAIN · backup connected: ${st.followers.join(', ')}` : 'MAIN · no backup connected';
+    level = st.followers.length ? 'ok' : 'warn';
+  } else {
+    const link = st.link || {};
+    if (link.state === 'connected') { text = `BACKUP · following ${link.host}`; level = 'ok'; }
+    else if (link.state === 'lost') { text = 'BACKUP · MAIN LOST — run the show from here'; level = 'bad'; }
+    else if (link.state === 'connecting') { text = `BACKUP · connecting to ${link.host}…`; level = 'warn'; }
+    else { text = 'BACKUP · set the main computer in Settings'; level = 'warn'; }
+    if (st.held && link.state === 'connected') { text = `BACKUP · main back (${link.host}) — holding until the main's next action`; level = 'warn'; }
+    if (st.issue && level === 'ok') { text += ' · shows differ'; level = 'warn'; }
+  }
+  el.textContent = text;
+  el.title = (st.issue || '') + (st.link && st.link.error ? ` ${st.link.error}` : '');
+  el.className = `sync-badge ${level}`;
+}
+
+function renderSync() {
+  const box = $('syncSettings');
+  if (!sync) { box.textContent = 'Loading…'; return; }
+  const c = sync.config;
+  const st = sync.status;
+  const backup = c.role === 'backup';
+  box.innerHTML = `
+    <div class="grid2">
+      <span>This computer is</span>
+      <select data-sync="role">
+        <option value="standalone"${c.role === 'standalone' ? ' selected' : ''}>Standalone</option>
+        <option value="main"${c.role === 'main' ? ' selected' : ''}>Main (backups follow it)</option>
+        <option value="backup"${backup ? ' selected' : ''}>Backup (follows a main)</option>
+      </select>
+      ${backup ? `<span>Main computer</span><div><input type="text" placeholder="IP or hostname" data-sync="mainHost" value="${esc(c.mainHost)}"> : <input type="number" min="1" max="65535" data-sync="mainPort" value="${c.mainPort}"></div>` : ''}
+    </div>
+    ${backup ? `<label class="toggle"><input type="checkbox" data-sync="mirrorBlackout" ${c.mirrorBlackout ? 'checked' : ''}><span>Follow blackout</span></label>
+    <label class="toggle"><input type="checkbox" data-sync="mirrorTimer" ${c.mirrorTimer ? 'checked' : ''}><span>Follow speaker timer and stage messages</span></label>
+    <div><button class="btn small" id="syncPull">Copy show from main</button> <span class="note" style="margin:0">Use the same show on both computers; files are found by name if their folder differs.</span></div>` : ''}
+    ${c.role === 'main' ? `<div class="note" style="margin:0">On the backup computer choose “Backup” and enter this computer's address${remote && remote.addresses.length ? ` (${esc(remote.addresses.join(', '))})` : ''}, port ${remote ? remote.config.httpPort : 9640}. Remote control must allow other computers.</div>` : ''}
+    ${st.issue ? `<div class="status-bad">${esc(st.issue)}</div>` : ''}`;
+  const pull = $('syncPull');
+  if (pull) pull.onclick = async () => {
+    const r = await api.syncPull();
+    if (r.error) flash(`Copy show failed: ${r.error}`, 'error');
+    else if (r.replaced) flash(r.missing ? `Show copied. ${r.missing} file(s) still missing on this computer.` : 'Show copied from main.', r.missing ? 'warn' : 'info');
+  };
+}
+
+async function saveSync(patch) {
+  sync = await api.syncSet({ ...sync.config, ...patch });
+  // A main must be reachable from the backup computer.
+  if (sync.config.role === 'main' && remote && !remote.config.allowNetwork) await saveRemote({ allowNetwork: true });
+  renderSync();
+  renderSyncBadge();
 }
 
 // ---------- remote control settings ----------
@@ -524,9 +589,16 @@ function setupEditor() {
   $('settingsBtn').onclick = async () => {
     env = await api.env();
     remote = await api.controlGet();
+    sync = await api.syncGet();
     $('settings').hidden = false;
     renderSettings();
   };
+  $('syncSettings').addEventListener('change', (e) => {
+    const key = e.target.dataset.sync;
+    if (!key) return;
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.type === 'number' ? Number(e.target.value) : e.target.value.trim();
+    saveSync({ [key]: value });
+  });
   $('remoteControl').addEventListener('change', (e) => {
     const key = e.target.dataset.rc;
     if (!key) return;
@@ -648,6 +720,9 @@ async function init() {
     render();
   });
   api.on('displays', (d) => { displays = d; render(); });
+  sync = await api.syncGet();
+  renderSyncBadge();
+  api.on('sync', (status) => { if (sync) { sync.status = status; renderSyncBadge(); if (!$('settings').hidden) renderSync(); } });
   api.on('control-status', (status) => { if (remote) { remote.status = status; if (!$('settings').hidden) renderRemote(); } });
   window.addEventListener('focus', async () => { await refreshFileStatus(); renderGrid(); renderEditor(); });
 }

@@ -26,6 +26,7 @@
   <section class="statusbar">
     <div class="status-live"><b>LIVE</b> <span id="liveText">—</span></div>
     <div class="status-armed"><b>NEXT</b> <span id="armedText">—</span></div>
+    <div id="syncBadge" class="sync-badge" hidden></div>
     <div id="message" class="message" hidden></div>
   </section>
 
@@ -113,6 +114,8 @@
       <label class="toggle"><input type="checkbox" id="setRefocus"><span>Bring Deck Cue back to the front after a cue starts</span></label>
       <h3>Global shortcuts <small>work while the slideshow is in front · need a modifier key or an F-key</small></h3>
       <div class="global-keys" id="globalKeys"></div>
+      <h3>Main / backup <small>a backup computer follows the main one · per computer</small></h3>
+      <div id="syncSettings" class="remote"></div>
       <h3>Remote control <small>Bitfocus Companion, Stream Deck, OSC · per computer</small></h3>
       <div id="remoteControl" class="remote"></div>
       <h3>System</h3>

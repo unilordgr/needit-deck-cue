@@ -24,7 +24,7 @@ Controls [needit Deck Cue](https://github.com/unilordgr/needit-deck-cue), a cue 
 - **Cue colour**: the colour set on the cue in Deck Cue.
 
 ### Variables
-- `show_name`
+- `show_name`, `role` (standalone/main/backup)
 - `live_number`, `live_name`, `next_number`, `next_name`
 - `slide`, `slides`, `slide_text` (for example "3/12"; for PDF cues)
 - `blackout`, `cue_count`, and `cue_N_name` for every cue

@@ -30,6 +30,38 @@ Deck Cue detects which apps are installed (⚙︎ Settings › System lists them
 - WPS can't close a deck while a slideshow is running. With *Close the previous presentation* on, Deck Cue closes the old deck *before* starting the next one, so the editor shows for a moment during the change. Turn on *black backdrop* in Settings to hide it on the output.
 - Don't leave a dialog open in WPS (Save, Recover, etc.). Deck Cue can't click Play while one is showing.
 
+## Main / backup
+
+Run the same show on two computers. Each feeds the video switcher, and the **backup follows the main** in step:
+- cue fires, stop, next/previous slide and blackout
+- the NEXT cue
+- for PDF cues, the exact page
+- the speaker timer and stage messages
+
+If the main fails, cut the switcher to the backup and keep going from the backup's own GO, keys or Companion.
+
+**Setup** (⚙︎ Settings › Main / backup):
+1. On the main computer choose **Main**. This also allows other computers in Remote control.
+2. On the backup choose **Backup** and enter the main's address and port (shown in the main's Settings).
+3. Make both shows match: copy the show folder to both computers, or press **Copy show from main** on the backup. Files are matched by name if their folder is different.
+
+**How it stays in step**
+- **Actions are sent instantly**, so both machines load together.
+- The main also sends its full state every few seconds. The backup corrects any drift: a missed cue, a backup that joined mid-show, or a PDF page moved by its own clicker.
+- If the two shows don't line up, the backup says which cues differ.
+
+**Status bar**
+- On the main: *MAIN · backup connected: <name>*.
+- On the backup: *BACKUP · following <main>*, or a flashing **MAIN LOST** warning.
+
+**Fail-safe:** after losing the main, the backup **holds**. A restarted main with nothing live will not stop the backup's show. Following resumes at the main's next deliberate action (a cue, a slide, stop).
+
+**Limits**
+- Slide changes made directly in PowerPoint/WPS/Keynote on the main (for example, a clicker plugged into the main) can't be seen. Send slide changes through Deck Cue: its slide buttons, global *Next slide* keys, Companion or OSC. Or use a clicker that drives both machines (e.g. DSAN PerfectCue).
+- Exact-page correction works for PDF cues. Other cues follow next/previous.
+
+To test both roles on one computer, start a second copy with its own settings: `open -n "needit Deck Cue.app" --args --profile=backup` (macOS), or `"needit Deck Cue.exe" --profile=backup` (Windows). Then give it different ports in Settings.
+
 ## Stage display (confidence monitor)
 
 Open `http://<deck-cue-computer>:9640/stage` in any browser: a monitor on the stage, a tablet on the lectern, or a laptop at front of house. ⚙︎ Settings › Remote control shows the exact link and has **Open stage display** buttons. A device other than this computer needs *Allow other computers on the network* turned on.

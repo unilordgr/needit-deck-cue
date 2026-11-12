@@ -151,6 +151,7 @@ class DeckCueInstance extends InstanceBase {
 		const live = state.live
 		const values = {
 			show_name: state.show || '',
+			role: state.role || 'standalone',
 			live_number: live ? live.number : '',
 			live_name: live ? live.name : '',
 			next_number: state.next ? state.next.number : '',
@@ -353,6 +354,7 @@ class DeckCueInstance extends InstanceBase {
 
 		const variables = [
 			{ variableId: 'show_name', name: 'Show name' },
+			{ variableId: 'role', name: 'Role of this Deck Cue (standalone/main/backup)' },
 			{ variableId: 'live_number', name: 'Live cue number' },
 			{ variableId: 'live_name', name: 'Live cue name' },
 			{ variableId: 'next_number', name: 'Next cue number' },
