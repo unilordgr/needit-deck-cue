@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   env: invoke('env:status'),
   controlGet: invoke('control:get'),
   timerCmd: invoke('timer:cmd'),
+  preflightRun: invoke('preflight:run'),
   syncGet: invoke('sync:get'),
   syncSet: invoke('sync:set'),
   syncPull: invoke('sync:pull'),

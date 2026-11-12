@@ -34,7 +34,10 @@ body {
   background: var(--panel); border-bottom: 1px solid var(--line);
   -webkit-app-region: drag;
 }
-.topbar > * { -webkit-app-region: no-drag; }
+.topbar > * { -webkit-app-region: no-drag; flex-shrink: 0; white-space: nowrap; }
+.topbar .show-name { flex: 0 1 260px; min-width: 90px; }
+.topbar .field { flex-shrink: 1; min-width: 0; }
+.topbar .field select { min-width: 110px; max-width: 300px; }
 body.mac .topbar { padding-left: 84px; } /* room for the traffic lights */
 .brand { font-weight: 800; letter-spacing: .12em; font-size: 14px; -webkit-app-region: drag; }
 .brand span { color: var(--live); }
@@ -82,6 +85,23 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
 .statusbar b { font-size: 11px; letter-spacing: .1em; margin-right: 6px; }
 .status-live b { color: var(--live); }
 .status-armed b { color: var(--armed); }
+.badge.pf-ok { color: var(--go); border-color: #1d4d33; }
+.badge.pf-info { color: #9cc0ff; border-color: #2d4a7a; }
+.badge.pf-warn { color: #ffd66b; border-color: #6b5410; background: #2a2208; }
+.badge.pf-error { color: #fff; border-color: var(--live); background: #7a1717; }
+.preflight-btn.pf-ok { color: var(--go); }
+.preflight-btn.pf-warn { color: #ffd66b; border-color: #6b5410; }
+.preflight-btn.pf-error { color: #fff; background: #7a1717; border-color: var(--live); }
+.pf-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.pf-list li { font-size: 12px; line-height: 1.35; padding: 5px 8px 5px 26px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); position: relative; user-select: text; }
+.pf-list li::before { position: absolute; left: 8px; top: 5px; font-weight: 800; }
+.pf-list li.error { border-color: #5a2323; } .pf-list li.error::before { content: "✕"; color: #ff7b7b; }
+.pf-list li.warn { border-color: #5b4500; } .pf-list li.warn::before { content: "⚠"; color: #ffd66b; }
+.pf-list li.info::before { content: "i"; color: #9cc0ff; }
+.pf-list li.ok::before { content: "✓"; color: var(--go); }
+.pf-report { display: flex; flex-direction: column; gap: 12px; }
+.pf-report h4 { margin: 0; font-size: 13px; display: flex; gap: 8px; align-items: center; }
+.pf-report .pf-empty { color: var(--go); font-weight: 600; }
 .sync-badge { padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
 .sync-badge.ok { background: #0f2e1d; color: #6be3a0; }
 .sync-badge.warn { background: #3a2f0b; color: #ffd66b; }

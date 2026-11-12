@@ -30,6 +30,28 @@ Deck Cue detects which apps are installed (⚙︎ Settings › System lists them
 - WPS can't close a deck while a slideshow is running. With *Close the previous presentation* on, Deck Cue closes the old deck *before* starting the next one, so the editor shows for a moment during the change. Turn on *black backdrop* in Settings to hide it on the output.
 - Don't leave a dialog open in WPS (Save, Recover, etc.). Deck Cue can't click Play while one is showing.
 
+## Preflight
+
+Deck Cue checks every cue on **this computer** and shows the result:
+- a badge on each cue: ✓, ⚠ with the number of things to check, or ✕ when it won't play
+- a list in the cue editor
+- a **Preflight** button in the top bar ("✓ Ready", "⚠ 2 to check", "✕ 1 won't play") that opens the full report
+
+Checks run when you add or change cues, when screens are connected, and each time you switch back to Deck Cue (after fixing a deck or installing a font, for example).
+
+**What it checks**
+| | |
+|---|---|
+| File | missing, password-protected, no slides, start slide beyond the last slide, hidden slides, very large files, old `.ppt` format |
+| Fonts | every font the deck uses, including theme fonts. Fonts embedded in the deck count as present; so do fonts installed on the computer or bundled with PowerPoint/WPS |
+| Screen | slide shape (4:3, 16:9…) against the cue's output screen ("4:3 slides on a 16:9 output: black bars at the sides"), and output screens that aren't connected |
+| Video and audio | linked media that can't be found, media streamed from the internet, formats a Mac can't play (WMV, AVI…), and a reminder to rehearse video in WPS |
+| Computer | presentation app not installed; WPS without Accessibility permission (Mac) |
+
+Fonts, media and slide details are read from `.pptx`/`.ppsx`/`.potx` files and PDFs (page count, page shape, password). Keynote and old `.ppt` files get the file, app and screen checks.
+
+In Companion, *Cue has preflight problems* and *Show has preflight problems* can colour buttons, and the `preflight` variable gives the summary.
+
 ## Main / backup
 
 Run the same show on two computers. Each feeds the video switcher, and the **backup follows the main** in step:

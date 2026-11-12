@@ -17,6 +17,7 @@ if (PROFILE) app.setPath('userData', `${app.getPath('userData')} (${PROFILE})`);
 const presenters = require('./presenters');
 const { createControlServer, localAddresses } = require('./control/server');
 const { createFollower } = require('./control/follower');
+const preflight = require('./preflight');
 
 let win = null;
 let show = null;
@@ -41,6 +42,7 @@ const state = {
   // Speaker countdown: while running, endsAt is the wall-clock end; while paused, remaining holds the time left.
   timer: { duration: 0, remaining: 0, endsAt: null, running: false },
   stageMessage: { text: '', flash: false }, // shown on the stage display
+  preflight: {}, // cueId -> { level: ok|info|warn|error, items: [{ level, text }] }
 };
 const blackoutWins = new Map();
 
@@ -133,7 +135,7 @@ async function fileCommand(cmd) {
     return writeShow(r.filePath);
   }
   state.liveCueId = null; state.live = null; state.armedCueId = show.cues[0] ? show.cues[0].id : null;
-  autosave(); registerShortcuts(); sendShow(); broadcast();
+  autosave(); registerShortcuts(); sendShow(); broadcast(); schedulePreflight();
 }
 
 async function confirmDiscard() {
@@ -247,6 +249,58 @@ function setMessage(msg, level = 'info') {
 
 function cueAutoSlideshow(cue) {
   return cue.autoSlideshow === true || cue.autoSlideshow === false ? cue.autoSlideshow : show.settings.defaultAutoSlideshow;
+}
+
+// ---------- preflight ----------
+// The screen a cue would play on: its output, else the show default, else (for "let the app choose")
+// the first external display, which is where the apps normally put the slideshow.
+function preflightContext(cue) {
+  const filePath = cue.file && cue.file.path;
+  const file = resolveCueFile(cue);
+  const appName = presenters.appFor(cue.app, file || filePath || 'x.pptx', show.settings.pptApp);
+  const outRef = !cue.output || cue.output === 'default' ? show.settings.defaultOutput : cue.output;
+  let display = null;
+  let outputMissing = null;
+  if (outRef && outRef !== 'auto') {
+    display = resolveOutput(outRef);
+    if (!display) outputMissing = outRef.label;
+  }
+  if (!display) {
+    const primary = screen.getPrimaryDisplay();
+    display = screen.getAllDisplays().find((d) => d.id !== primary.id) || primary;
+  }
+  const label = listDisplays().find((d) => d.id === display.id);
+  return {
+    file,
+    filePath,
+    appName,
+    appLabel: presenters.APPS[appName] ? presenters.APPS[appName].name : appName,
+    appInstalled: presenters.isInstalled(appName),
+    needsAccessibility: cueAutoSlideshow(cue) && presenters.needsAccessibility(appName, false),
+    accessibilityOk: axTrusted(),
+    display,
+    displayLabel: label ? label.label : 'main display',
+    outputMissing,
+    startSlide: Number(cue.startSlide) || 1,
+  };
+}
+
+let preflightTimer = null;
+let preflightRun = 0;
+function schedulePreflight(delay = 400) {
+  clearTimeout(preflightTimer);
+  preflightTimer = setTimeout(runPreflight, delay);
+}
+
+async function runPreflight() {
+  const run = ++preflightRun;
+  const results = {};
+  for (const cue of show.cues) {
+    try { results[cue.id] = await preflight.checkCue(preflightContext(cue)); } catch (e) { results[cue.id] = { level: 'warn', items: [{ level: 'warn', text: `Preflight failed: ${e.message}` }] }; }
+    if (run !== preflightRun) return; // a newer run started (the show changed)
+  }
+  state.preflight = results;
+  broadcast();
 }
 
 // ---------- speaker timer and stage message ----------
@@ -584,7 +638,7 @@ async function pullShowFromMain() {
   }
   show = pulled; showPath = null; dirty = true;
   state.liveCueId = null; state.live = null;
-  autosave(); registerShortcuts(); sendShow(); broadcast();
+  autosave(); registerShortcuts(); sendShow(); broadcast(); schedulePreflight();
   return { replaced: true, missing: missing().length };
 }
 
@@ -622,7 +676,8 @@ function remoteState() {
     cues: show.cues.map((c, i) => {
       const missing = !c.file || !fs.existsSync(c.file.path);
       const st = c.id === state.busyCueId ? 'loading' : c.id === state.liveCueId ? 'live' : nextCue && c.id === nextCue.id ? 'next' : missing ? 'missing' : 'idle';
-      return { number: i + 1, id: c.id, name: cueName(c), color: c.color || null, state: st, missing };
+      const pf = state.preflight[c.id];
+      return { number: i + 1, id: c.id, name: cueName(c), color: c.color || null, state: st, missing, preflight: pf ? pf.level : null };
     }),
   };
 }
@@ -656,6 +711,7 @@ function setupIpc() {
     if (state.armedCueId && !show.cues.some((c) => c.id === state.armedCueId)) state.armedCueId = null;
     autosave(); registerShortcuts(); updateTitle();
     if (control) control.update();
+    schedulePreflight();
     return { shortcutReport, dirty };
   });
   ipcMain.handle('show:file', (_e, cmd) => fileCommand(cmd));
@@ -678,6 +734,7 @@ function setupIpc() {
   ipcMain.handle('sync:pull', async () => {
     try { return await pullShowFromMain(); } catch (e) { return { error: e.message }; }
   });
+  ipcMain.handle('preflight:run', () => schedulePreflight(0));
   ipcMain.handle('timer:cmd', (_e, cmd, seconds) => timerCommand(cmd, seconds));
   ipcMain.handle('stage:message', (_e, text, flash) => setStageMessage(text, flash));
   ipcMain.handle('stage:open', (_e, view) => shell.openExternal(`http://127.0.0.1:${prefs.control.httpPort}/stage${view === 'timer' ? '?view=timer' : ''}`));
@@ -750,7 +807,8 @@ function createWindow() {
       if (await confirmDiscard()) { app.isQuitting = true; app.quit(); }
     }
   });
-  win.on('closed', () => { win = null; });
+  // Hidden helper windows (PDF probe, PDF player) must not keep the app running.
+  win.on('closed', () => { win = null; app.quit(); });
   updateTitle();
 }
 
@@ -807,14 +865,15 @@ app.whenReady().then(() => {
   registerShortcuts();
   startControl();
   startSync();
+  schedulePreflight(1500);
   // While a backup is connected, re-send the state every few seconds so it can correct any drift
   // (e.g. its own clicker moved a slide) even when nothing changes on the main.
   setInterval(() => { if (followers.length && control) control.update(); }, 3000);
-  const onDisplays = () => { if (win) win.webContents.send('displays', listDisplays()); };
+  const onDisplays = () => { if (win) win.webContents.send('displays', listDisplays()); schedulePreflight(); };
   screen.on('display-added', onDisplays);
   screen.on('display-removed', onDisplays);
   screen.on('display-metrics-changed', onDisplays);
 });
 
-app.on('will-quit', () => { globalShortcut.unregisterAll(); hideBlack(); if (control) control.stop(); if (follower) follower.stop(); });
+app.on('will-quit', () => { globalShortcut.unregisterAll(); hideBlack(); preflight.closeProbe(); if (control) control.stop(); if (follower) follower.stop(); });
 app.on('window-all-closed', () => app.quit());

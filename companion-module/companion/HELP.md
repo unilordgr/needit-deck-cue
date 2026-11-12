@@ -20,11 +20,12 @@ Controls [needit Deck Cue](https://github.com/unilordgr/needit-deck-cue), a cue 
 ### Feedbacks
 - **Cue is live** (red), **Cue is next** (yellow), **Cue is loading**, **Cue file missing**.
 - **Blackout is on**, **Something is live**.
+- **Cue has preflight problems** (error, or anything to check) and **Show has preflight problems**.
 - **Timer is running**, **Timer is nearly done** (amber, threshold in seconds), **Timer is over time** (red), **Stage message is showing**.
 - **Cue colour**: the colour set on the cue in Deck Cue.
 
 ### Variables
-- `show_name`, `role` (standalone/main/backup)
+- `show_name`, `role` (standalone/main/backup), `preflight` (Ready / 2 to check / 1 won't play)
 - `live_number`, `live_name`, `next_number`, `next_name`
 - `slide`, `slides`, `slide_text` (for example "3/12"; for PDF cues)
 - `blackout`, `cue_count`, and `cue_N_name` for every cue

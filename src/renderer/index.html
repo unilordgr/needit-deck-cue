@@ -15,6 +15,7 @@
       <span>Output</span>
       <select id="defaultOutput" title="Default display for slideshows"></select>
     </label>
+    <button id="preflightBtn" class="btn ghost preflight-btn" title="Check every cue for missing files, fonts, media and output problems">Preflight</button>
     <button id="identifyBtn" class="btn ghost" title="Show a number on every display">Identify</button>
     <label class="toggle" title="New cues and cues set to 'Default' start the slideshow automatically">
       <input type="checkbox" id="defaultAuto"><span>Auto fullscreen</span>
@@ -89,6 +90,7 @@
       </div>
     </div>
     <div id="edShortcutNote" class="note"></div>
+    <div class="row col"><span>Preflight <button id="edPreflightRun" class="btn small ghost">Check again</button></span><ul id="edPreflight" class="pf-list"></ul></div>
     <div class="row"><span>Color</span><div id="edColors" class="colors"></div></div>
     <label class="row col"><span>Notes</span><textarea id="edNotes" rows="3"></textarea></label>
     <div class="editor-foot">
@@ -120,6 +122,16 @@
       <div id="remoteControl" class="remote"></div>
       <h3>System</h3>
       <div id="envInfo" class="env"></div>
+    </div>
+  </div>
+
+  <div id="preflightModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="editor-head">
+        <h2>Preflight</h2>
+        <div><button id="preflightRerun" class="btn small">Check again</button> <button id="preflightClose" class="btn ghost small">✕</button></div>
+      </div>
+      <div id="preflightReport" class="pf-report"></div>
     </div>
   </div>
 

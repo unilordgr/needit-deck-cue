@@ -127,6 +127,36 @@ function appOptions(current, autoLabel, isPdf = false) {
     .join('');
 }
 
+// ---------- preflight ----------
+const PF_ICON = { ok: '✓', info: '✓', warn: '⚠', error: '✕' };
+function pfFor(c) { return (runtime.preflight || {})[c.id]; }
+function pfBadge(c) {
+  const pf = pfFor(c);
+  if (!pf) return '';
+  const problems = pf.items.filter((i) => i.level === 'warn' || i.level === 'error').length;
+  const title = pf.items.length ? pf.items.map((i) => `${PF_ICON[i.level] === '✓' ? 'i' : PF_ICON[i.level]} ${i.text}`).join('\n') : 'Preflight: no problems found';
+  return `<span class="badge pf-${pf.level}" title="${esc(title)}">${PF_ICON[pf.level]}${problems ? ` ${problems}` : ''}</span>`;
+}
+function pfItemsHtml(items) {
+  return items.length ? items.map((i) => `<li class="${i.level}">${esc(i.text)}</li>`).join('') : '<li class="ok">No problems found.</li>';
+}
+function renderPreflightButton() {
+  const all = show.cues.map(pfFor).filter(Boolean);
+  const btn = $('preflightBtn');
+  const errors = all.filter((p) => p.level === 'error').length;
+  const warns = all.filter((p) => p.level === 'warn').length;
+  const level = errors ? 'error' : warns ? 'warn' : all.length ? 'ok' : '';
+  btn.className = `btn ghost preflight-btn ${level ? `pf-${level}` : ''}`;
+  btn.textContent = !show.cues.length ? 'Preflight' : errors ? `✕ ${errors} won't play` : warns ? `⚠ ${warns} to check` : all.length ? '✓ Ready' : 'Preflight…';
+  btn.title = errors || warns ? `${errors ? `${errors} cue${errors > 1 ? 's' : ''} won't play. ` : ''}${warns ? `${warns} cue${warns > 1 ? 's' : ''} to check. ` : ''}Click for the preflight report.` : 'Preflight: every cue checked on this computer. Click for the report.';
+}
+function renderPreflightReport() {
+  const rows = show.cues.map((c, i) => ({ c, i, pf: pfFor(c) })).filter((r) => r.pf && r.pf.items.length);
+  $('preflightReport').innerHTML = rows.length
+    ? rows.map(({ c, i, pf }) => `<div><h4><span class="badge pf-${pf.level}">${PF_ICON[pf.level]}</span> ${i + 1} · ${esc(cueName(c))}</h4><ul class="pf-list">${pfItemsHtml(pf.items)}</ul></div>`).join('')
+    : `<div class="pf-empty">✓ All ${show.cues.length} cue${show.cues.length === 1 ? '' : 's'} passed preflight on this computer.</div>`;
+}
+
 // ---------- rendering ----------
 function render() {
   if (!show) return;
@@ -139,7 +169,9 @@ function render() {
   renderGrid();
   renderStatus();
   renderEditor();
+  renderPreflightButton();
   if (!$('settings').hidden) renderSettings();
+  if (!$('preflightModal').hidden) renderPreflightReport();
 }
 
 function renderGrid() {
@@ -160,6 +192,7 @@ function renderGrid() {
     return `<div class="${cls}" data-id="${c.id}" draggable="${!show.settings.locked}" style="--cue-color:${esc(c.color || COLORS[0])}">
       <div class="num">${i + 1}</div>
       <div class="badges">
+        ${pfBadge(c)}
         ${out ? `<span class="badge" title="Output override">${esc(out)}</span>` : ''}
         <span class="badge" title="${auto ? 'Starts the slideshow automatically' : 'Opens without starting the slideshow'}">${auto ? '⛶' : 'open'}</span>
         <span class="badge app-${app.id}${app.installed ? '' : ' bad'}" title="${esc(app.name)}${app.installed ? '' : ' is not installed'}">${esc(app.short)}</span>
@@ -224,6 +257,8 @@ function renderEditor() {
   note.classList.toggle('bad', bad);
   $('edColors').innerHTML = COLORS.map((col) => `<span class="swatch${(c.color || COLORS[0]) === col ? ' on' : ''}" data-color="${col}" style="background:${col}"></span>`).join('');
   if (document.activeElement !== $('edNotes')) $('edNotes').value = c.notes || '';
+  const pf = pfFor(c);
+  $('edPreflight').innerHTML = pf ? pfItemsHtml(pf.items) : '<li class="info">Checking…</li>';
 }
 
 const GLOBAL_ACTIONS = [['go', 'GO (next cue)'], ['stop', 'Stop all'], ['blackout', 'Blackout'], ['next', 'Next slide'], ['prev', 'Previous slide']];
@@ -571,6 +606,11 @@ function setupEditor() {
     updateSelected({ shortcut: accel ? { accel, global: e.target.checked } : null });
   };
   $('edTest').onclick = () => api.fire(selectedId);
+  $('edPreflightRun').onclick = () => api.preflightRun();
+  $('preflightBtn').onclick = () => { api.preflightRun(); $('preflightModal').hidden = false; renderPreflightReport(); };
+  $('preflightRerun').onclick = () => api.preflightRun();
+  $('preflightClose').onclick = () => { $('preflightModal').hidden = true; };
+  $('preflightModal').onclick = (e) => { if (e.target === $('preflightModal')) $('preflightModal').hidden = true; };
   $('edDuplicate').onclick = () => {
     const c = cueById(selectedId);
     const copy = { ...JSON.parse(JSON.stringify(c)), id: uid(), shortcut: null };
@@ -662,6 +702,7 @@ function setupKeyboard() {
       return;
     }
     if (!$('settings').hidden) { if (e.key === 'Escape') $('settings').hidden = true; return; }
+    if (!$('preflightModal').hidden) { if (e.key === 'Escape') $('preflightModal').hidden = true; return; }
     const accel = accelFromEvent(e);
     if (!accel) return;
     // Cue shortcuts (global ones are handled by the main process, which also fires while we're focused).
@@ -710,6 +751,9 @@ async function init() {
     runtime = s;
     renderGrid();
     renderStatus();
+    renderPreflightButton();
+    if (selectedId) renderEditor();
+    if (!$('preflightModal').hidden) renderPreflightReport();
     tickTimer();
     $('stageMsg').classList.toggle('sent', !!(s.stageMessage && s.stageMessage.text));
   });
@@ -724,7 +768,8 @@ async function init() {
   renderSyncBadge();
   api.on('sync', (status) => { if (sync) { sync.status = status; renderSyncBadge(); if (!$('settings').hidden) renderSync(); } });
   api.on('control-status', (status) => { if (remote) { remote.status = status; if (!$('settings').hidden) renderRemote(); } });
-  window.addEventListener('focus', async () => { await refreshFileStatus(); renderGrid(); renderEditor(); });
+  // Coming back to the app (after editing a deck, installing a font…) re-checks; unchanged files are cached.
+  window.addEventListener('focus', async () => { await refreshFileStatus(); renderGrid(); renderEditor(); api.preflightRun(); });
 }
 
 init();

@@ -163,6 +163,11 @@ class DeckCueInstance extends InstanceBase {
 			timer_state: !state.timer ? '' : state.timer.running ? 'running' : this.timerIdle() ? 'idle' : 'paused',
 			stage_message: state.stageMessage ? state.stageMessage.text : '',
 			cue_count: state.cues.length,
+			preflight: (() => {
+				const errors = state.cues.filter((c) => c.preflight === 'error').length
+				const warns = state.cues.filter((c) => c.preflight === 'warn').length
+				return errors ? `${errors} won't play` : warns ? `${warns} to check` : state.cues.length ? 'Ready' : ''
+			})(),
 		}
 		for (const c of state.cues) values[`cue_${c.number}_name`] = c.name
 		this.setVariableValues(values)
@@ -340,6 +345,49 @@ class DeckCueInstance extends InstanceBase {
 				options: [],
 				callback: () => !!(this.state && this.state.stageMessage && this.state.stageMessage.text),
 			},
+			cue_preflight: {
+				type: 'boolean',
+				name: 'Cue has preflight problems',
+				defaultStyle: { bgcolor: combineRgb(122, 23, 23), color: WHITE },
+				options: [
+					cueOption,
+					{
+						type: 'dropdown',
+						id: 'level',
+						label: 'When',
+						default: 'error',
+						choices: [
+							{ id: 'error', label: "It won't play (error)" },
+							{ id: 'warn', label: 'Anything to check (warning or error)' },
+						],
+					},
+				],
+				callback: (f) => {
+					const c = this.findCue(f.options.cue)
+					if (!c) return false
+					return f.options.level === 'warn' ? c.preflight === 'warn' || c.preflight === 'error' : c.preflight === 'error'
+				},
+			},
+			show_preflight: {
+				type: 'boolean',
+				name: 'Show has preflight problems',
+				defaultStyle: { bgcolor: combineRgb(122, 23, 23), color: WHITE },
+				options: [
+					{
+						type: 'dropdown',
+						id: 'level',
+						label: 'When',
+						default: 'error',
+						choices: [
+							{ id: 'error', label: "A cue won't play (error)" },
+							{ id: 'warn', label: 'Anything to check (warning or error)' },
+						],
+					},
+				],
+				callback: (f) =>
+					!!this.state &&
+					this.state.cues.some((c) => c.preflight === 'error' || (f.options.level === 'warn' && c.preflight === 'warn')),
+			},
 			cue_color: {
 				type: 'advanced',
 				name: 'Cue colour (from Deck Cue)',
@@ -364,6 +412,7 @@ class DeckCueInstance extends InstanceBase {
 			{ variableId: 'slide_text', name: 'Slide as text, e.g. 3/12' },
 			{ variableId: 'blackout', name: 'Blackout (ON/OFF)' },
 			{ variableId: 'cue_count', name: 'Number of cues' },
+			{ variableId: 'preflight', name: "Preflight summary (Ready / 2 to check / 1 won't play)" },
 			{ variableId: 'timer', name: 'Speaker timer (e.g. 04:59, +00:12 when over)' },
 			{ variableId: 'timer_seconds', name: 'Speaker timer in seconds (negative when over)' },
 			{ variableId: 'timer_state', name: 'Timer state (running/paused/idle)' },
@@ -398,6 +447,11 @@ class DeckCueInstance extends InstanceBase {
 				{ feedbackId: 'something_live', options: {}, style: { bgcolor: RED, color: WHITE } },
 			]),
 		}
+		presets.preflight = button('Transport', 'Preflight status', `PRE\\nFLIGHT\\n${v('preflight')}`, 'go', {}, { bgcolor: combineRgb(15, 46, 29), size: '14' }, [
+			{ feedbackId: 'show_preflight', options: { level: 'warn' }, style: { bgcolor: YELLOW, color: BLACK } },
+			{ feedbackId: 'show_preflight', options: { level: 'error' }, style: { bgcolor: RED, color: WHITE } },
+		])
+		presets.preflight.steps = [{ down: [], up: [] }]
 		// The live display preset shouldn't stop the show when pressed.
 		presets.live_display.steps = [{ down: [], up: [] }]
 
@@ -424,6 +478,7 @@ class DeckCueInstance extends InstanceBase {
 			presets[`cue_${c.number}`] = button('Cues', `Cue ${c.number}`, `${c.number}\\n${v(`cue_${c.number}_name`)}`, 'fire_cue', options, {}, [
 				{ feedbackId: 'cue_color', options },
 				{ feedbackId: 'cue_missing', options, style: { bgcolor: DARK_RED, color: combineRgb(255, 157, 157) } },
+				{ feedbackId: 'cue_preflight', options: { ...options, level: 'error' }, style: { bgcolor: DARK_RED, color: combineRgb(255, 157, 157) } },
 				{ feedbackId: 'cue_next', options, style: { bgcolor: YELLOW, color: BLACK } },
 				{ feedbackId: 'cue_live', options, style: { bgcolor: RED, color: WHITE } },
 			])
