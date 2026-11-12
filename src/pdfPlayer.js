@@ -31,18 +31,30 @@ function defaultBounds() {
   return d.bounds;
 }
 
-function ensureWindow(bounds) {
+// "program" mode plays into a normal 16:9 window named PROGRAM_TITLE, for NDI Screen Capture, OBS or
+// vMix to capture by name (no spare monitor needed). Otherwise the window covers a display.
+const PROGRAM_TITLE = 'needit Deck Cue — Program';
+const PROGRAM_SIZE = { width: 1280, height: 720 };
+
+function ensureWindow(bounds, program) {
+  if (win && !win.isDestroyed() && win.programMode !== program) win.destroy(); // switching modes: start over
   if (win && !win.isDestroyed()) {
-    win.setBounds(bounds);
+    if (!program) win.setBounds(bounds);
     return loaded;
   }
-  win = new BrowserWindow({
-    ...bounds, frame: false, backgroundColor: '#000000', show: false, hasShadow: false,
-    enableLargerThanScreen: true, skipTaskbar: true, title: 'needit Deck Cue — PDF',
-    webPreferences: { preload: path.join(__dirname, 'pdf', 'preload.js'), contextIsolation: true, sandbox: true },
-  });
-  win.setAlwaysOnTop(true, 'screen-saver');
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  win = new BrowserWindow(program
+    ? { ...PROGRAM_SIZE, useContentSize: true, backgroundColor: '#000000', show: false, title: PROGRAM_TITLE, autoHideMenuBar: true,
+      webPreferences: { preload: path.join(__dirname, 'pdf', 'preload.js'), contextIsolation: true, sandbox: true, backgroundThrottling: false } }
+    : { ...bounds, frame: false, backgroundColor: '#000000', show: false, hasShadow: false,
+      enableLargerThanScreen: true, skipTaskbar: true, title: 'needit Deck Cue — PDF',
+      webPreferences: { preload: path.join(__dirname, 'pdf', 'preload.js'), contextIsolation: true, sandbox: true } });
+  win.programMode = program;
+  if (program) {
+    win.on('page-title-updated', (e) => e.preventDefault()); // keep the name capture tools look for
+  } else {
+    win.setAlwaysOnTop(true, 'screen-saver');
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   win.webContents.on('console-message', (_e, level, message) => { if (level >= 2) console.error('[pdf]', message); });
   win.on('closed', () => {
@@ -59,16 +71,16 @@ function command(cmd) {
   if (win && !win.isDestroyed()) win.webContents.send('pdf:cmd', cmd);
 }
 
-async function show(file, { startPage = 1, bounds = null } = {}) {
+async function show(file, { startPage = 1, bounds = null, program = false } = {}) {
   const target = bounds || defaultBounds();
   const data = await fs.promises.readFile(file);
-  await ensureWindow(target);
+  await ensureWindow(target, program);
   const t = ++token;
   const done = new Promise((resolve, reject) => pending.set(t, { resolve, reject }));
   command({ type: 'load', token: t, data, startPage });
   const status = await done;
   current = { file };
-  win.setBounds(target);
+  if (!program) win.setBounds(target);
   win.show();
   await activateApp();
   win.focus();
@@ -111,4 +123,4 @@ function close(file) {
   if (current && current.file === file) stop();
 }
 
-module.exports = { on, show, nav, goto, stop, close, isOpen: () => !!win };
+module.exports = { PROGRAM_TITLE, on, show, nav, goto, stop, close, isOpen: () => !!win };

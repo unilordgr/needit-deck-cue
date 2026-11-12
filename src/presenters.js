@@ -51,7 +51,7 @@ async function fire(app, opts) {
       if (err) throw new Error(err);
       return 'opened';
     }
-    return pdfPlayer.show(opts.file, { startPage: opts.startSlide, bounds: opts.bounds });
+    return pdfPlayer.show(opts.file, { startPage: opts.startSlide, bounds: opts.bounds, program: !!opts.program });
   }
   return driver.fire(app, opts);
 }

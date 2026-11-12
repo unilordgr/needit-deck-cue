@@ -89,7 +89,8 @@ function outputOptions(current, includeDefault) {
   const opts = [];
   if (includeDefault) opts.push(`<option value="default"${!current || current === 'default' ? ' selected' : ''}>Default (show setting)</option>`);
   opts.push(`<option value="auto"${current === 'auto' ? ' selected' : ''}>Let the app choose</option>`);
-  let matched = !current || current === 'auto' || current === 'default';
+  opts.push(`<option value="window"${current === 'window' ? ' selected' : ''}>Program window (for NDI / OBS capture)</option>`);
+  let matched = !current || current === 'auto' || current === 'default' || current === 'window';
   displays.forEach((d, i) => {
     const sel = refMatches(current, d);
     if (sel) matched = true;
@@ -101,7 +102,7 @@ function outputOptions(current, includeDefault) {
   return opts.join('');
 }
 function outputFromValue(v, previous) {
-  if (v === 'default' || v === 'auto') return v;
+  if (v === 'default' || v === 'auto' || v === 'window') return v;
   if (v === 'missing') return previous;
   const d = displays.find((x) => String(x.id) === v);
   return d ? outputRef(d) : 'auto';
@@ -109,6 +110,7 @@ function outputFromValue(v, previous) {
 function outputShortLabel(ref) {
   if (!ref || ref === 'default') return null;
   if (ref === 'auto') return 'App picks';
+  if (ref === 'window') return '→ PGM';
   const i = displays.findIndex((d) => d.id === ref.id);
   return i >= 0 ? `→ ${i + 1}` : '→ ⚠';
 }

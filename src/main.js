@@ -387,7 +387,12 @@ function preflightContext(cue) {
   const outRef = !cue.output || cue.output === 'default' ? show.settings.defaultOutput : cue.output;
   let display = null;
   let outputMissing = null;
-  if (outRef && outRef !== 'auto') {
+  let programWarning = null;
+  if (outRef === 'window') {
+    // The program window is 16:9; only PDF cues can play into it.
+    display = { id: 'program', bounds: { width: 1920, height: 1080 } };
+    if (appName !== 'pdf') programWarning = true;
+  } else if (outRef && outRef !== 'auto') {
     display = resolveOutput(outRef);
     if (!display) outputMissing = outRef.label;
   }
@@ -395,7 +400,7 @@ function preflightContext(cue) {
     const primary = screen.getPrimaryDisplay();
     display = screen.getAllDisplays().find((d) => d.id !== primary.id) || primary;
   }
-  const label = listDisplays().find((d) => d.id === display.id);
+  const label = display.id === 'program' ? { label: 'program window' } : listDisplays().find((d) => d.id === display.id);
   return {
     file,
     filePath,
@@ -406,7 +411,7 @@ function preflightContext(cue) {
     accessibilityOk: axTrusted(),
     display,
     displayLabel: label ? label.label : 'main display',
-    outputMissing,
+    outputMissing: programWarning ? `Program window (only PDF cues can play into it; ${presenters.APPS[appName] ? presenters.APPS[appName].name : appName} will use a screen)` : outputMissing,
     startSlide: Number(cue.startSlide) || 1,
   };
 }
@@ -476,7 +481,11 @@ async function fireCue(id) {
   const outRef = !cue.output || cue.output === 'default' ? show.settings.defaultOutput : cue.output;
   let display = null;
   let warning = null;
-  if (outRef && outRef !== 'auto') {
+  let program = false;
+  if (outRef === 'window') {
+    if (appName === 'pdf') program = true;
+    else warning = `${presenters.APPS[appName].name} can't play into the program window, so it chose a screen. Capture that screen for NDI instead.`;
+  } else if (outRef && outRef !== 'auto') {
     display = resolveOutput(outRef);
     if (!display) warning = `Output “${outRef.label}” is not connected, so PowerPoint chose the display.`;
   }
@@ -512,7 +521,7 @@ async function fireCue(id) {
       if (auto) await presenters.stop('wps').catch(() => {});
       await presenters.close(prev.app, prev.file).catch(() => {});
     }
-    const result = await presenters.fire(appName, { file, startSlide: Number(cue.startSlide) || 1, auto, bounds: display ? display.bounds : null });
+    const result = await presenters.fire(appName, { file, startSlide: Number(cue.startSlide) || 1, auto, bounds: display ? display.bounds : null, program });
     if (closePrev && !closeFirst) await presenters.close(prev.app, prev.file).catch(() => {});
     state.live = { cueId: id, app: appName, file };
     if (versions) versions.clearChanged(id); // the freshly loaded file is the current one
