@@ -31,6 +31,16 @@ for (const [name, body] of Object.entries(_test.scripts)) {
       console.log(`RUN FAIL   ${name}: ${e.message}`);
     }
   }
+  // Default audio output (Core Audio through inline C#). A CI runner may have no audio device: empty is fine.
+  try {
+    const { WIN_AUDIO } = require('../src/showmode')._test;
+    const encoded = Buffer.from(WIN_AUDIO, 'utf16le').toString('base64');
+    const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { stdio: 'pipe' }).toString().trim();
+    console.log(`run ok     AUDIO -> ${JSON.stringify(out)}`);
+  } catch (e) {
+    failed = true;
+    console.log(`RUN FAIL   AUDIO: ${(e.stderr || e.message).toString().slice(0, 400)}`);
+  }
   // The long-running PowerShell used for the once-a-second slide poll.
   try {
     const echo = await _test.hostRun("'hello'");

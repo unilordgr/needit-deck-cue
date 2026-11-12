@@ -151,6 +151,55 @@ async function setActive(on) {
   return { active, quietOk };
 }
 
+// ---------- audio output ----------
+// Windows: the default playback device through Core Audio (IMMDeviceEnumerator), compiled inline.
+const WIN_AUDIO = `
+Add-Type -Language CSharp -TypeDefinition @"
+using System; using System.Runtime.InteropServices;
+[StructLayout(LayoutKind.Sequential)] public struct PK { public Guid fmtid; public int pid; }
+[StructLayout(LayoutKind.Sequential)] public struct PV { public ushort vt, r1, r2, r3; public IntPtr p; public IntPtr p2; }
+[Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IPS { int GetCount(out int c); int GetAt(int i, out PK k); int GetValue(ref PK k, out PV v); }
+[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IMMD { int Activate(ref Guid i, int c, IntPtr p, out IntPtr o); int OpenPropertyStore(int a, out IPS s); }
+[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IMMDE { int EnumAudioEndpoints(int f, int m, out IntPtr d); int GetDefaultAudioEndpoint(int f, int r, out IMMD d); }
+[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] public class MMDE { }
+public static class DeckCueAudio {
+  public static string DefaultOutput() {
+    var e = (IMMDE)new MMDE(); IMMD d;
+    if (e.GetDefaultAudioEndpoint(0, 1, out d) != 0 || d == null) return "";
+    IPS s; d.OpenPropertyStore(0, out s);
+    var k = new PK { fmtid = new Guid("a45c254e-df1c-4efd-8020-67d146a850e0"), pid = 14 }; PV v; s.GetValue(ref k, out v);
+    return v.p == IntPtr.Zero ? "" : Marshal.PtrToStringUni(v.p);
+  }
+}
+"@
+try { [DeckCueAudio]::DefaultOutput() } catch { '' }`;
+
+// { name, kind: 'builtin' | 'hdmi' | 'usb' | 'bluetooth' | 'other' } or null when unknown.
+async function audioOutput() {
+  if (IS_MAC) {
+    const out = await run('system_profiler', ['SPAudioDataType', '-json'], 15000);
+    try {
+      const items = JSON.parse(out)['SPAudioDataType'][0]['_items'] || [];
+      const dev = items.find((d) => d.coreaudio_default_audio_output_device === 'spaudio_yes');
+      if (!dev) return null;
+      const t = String(dev.coreaudio_device_transport || '');
+      const kind = /builtin/.test(t) ? 'builtin' : /hdmi|displayport/.test(t) ? 'hdmi' : /usb|thunderbolt/.test(t) ? 'usb' : /bluetooth/.test(t) ? 'bluetooth' : 'other';
+      return { name: dev._name, kind };
+    } catch { return null; }
+  }
+  if (IS_WIN) {
+    const encoded = Buffer.from(WIN_AUDIO, 'utf16le').toString('base64');
+    const name = ((await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], 20000)) || '').trim();
+    if (!name) return null;
+    const kind = /speaker|realtek|headphone/i.test(name) && !/hdmi|display/i.test(name) ? 'builtin' : /hdmi|display|nvidia|amd high definition|intel.*display/i.test(name) ? 'hdmi' : /usb/i.test(name) ? 'usb' : /bluetooth|hands-free|airpods/i.test(name) ? 'bluetooth' : 'other';
+    return { name, kind };
+  }
+  return null;
+}
+
 // ---------- readiness ----------
 async function macVolume() {
   const out = await run('osascript', ['-e', 'get volume settings']);
@@ -194,10 +243,18 @@ async function readiness() {
     else if (v && v.volume === 0) add('warn', 'Sound volume is at 0.');
   }
 
+  const audio = await audioOutput();
+  if (audio) {
+    const externalScreen = require('electron').screen.getAllDisplays().length > 1;
+    if (audio.kind === 'bluetooth') add('warn', `Sound plays on ${audio.name} (Bluetooth), which can lag or drop. Use a wired output for the room.`);
+    else if (audio.kind === 'builtin' && externalScreen) add('warn', `Sound plays on ${audio.name}. If the room sound comes over HDMI or a USB interface, switch the output in Sound settings.`);
+    else add('ok', `Sound plays on ${audio.name}.`);
+  }
+
   const gb = freeDiskGB();
   if (gb !== null && gb < 5) add('warn', `Only ${gb.toFixed(1)} GB free on the disk.`);
 
   return { active, quietOk, items, apps: apps.map((a) => a.label) };
 }
 
-module.exports = { setActive, readiness, quitApps, isActive: () => active, FOCUS_ON, FOCUS_OFF };
+module.exports = { setActive, readiness, quitApps, audioOutput, isActive: () => active, FOCUS_ON, FOCUS_OFF, _test: { WIN_AUDIO } };
