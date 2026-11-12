@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('api', {
   controlGet: invoke('control:get'),
   timerCmd: invoke('timer:cmd'),
   preflightRun: invoke('preflight:run'),
+  thumbsGet: invoke('thumbs:get'),
   versionUse: invoke('version:use'),
   versionIgnore: invoke('version:ignore'),
   versionClear: invoke('version:clear'),

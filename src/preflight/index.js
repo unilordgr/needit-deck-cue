@@ -23,7 +23,7 @@ ipcMain.on('probe:reply', (_e, r) => {
   if (done) { pending.delete(r.token); done(r); }
 });
 
-async function probePdf(file) {
+async function probePdf(file, thumbWidth = 0) {
   if (!probeWin || probeWin.isDestroyed()) {
     probeWin = new BrowserWindow({ show: false, webPreferences: { preload: path.join(__dirname, 'probe-preload.js'), contextIsolation: true, sandbox: true } });
     probeLoaded = probeWin.loadFile(path.join(__dirname, 'probe.html'));
@@ -34,7 +34,7 @@ async function probePdf(file) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => { pending.delete(t); resolve({ error: 'timed out reading the PDF' }); }, 20000);
     pending.set(t, (r) => { clearTimeout(timer); resolve(r); });
-    probeWin.webContents.send('probe:request', { token: t, data });
+    probeWin.webContents.send('probe:request', { token: t, data, thumbWidth });
   });
 }
 
@@ -137,4 +137,4 @@ function finish(items) {
   return { level, items };
 }
 
-module.exports = { checkCue, closeProbe };
+module.exports = { checkCue, closeProbe, probePdf };

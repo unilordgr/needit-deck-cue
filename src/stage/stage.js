@@ -105,9 +105,29 @@ async function renderPreviews() {
   }
   if (!(hasNextPage && (await renderPage(nxt, slide + 1, 'next')))) {
     rendered.next = '';
-    showText(nxt, $('nextText') || Object.assign(document.createElement('div'), { id: 'nextText', className: 'mid-text' }), state.next ? state.next.name : 'End of show');
+    const thumbUrl = state.next ? `/api/cue/${encodeURIComponent(state.next.id)}/thumb?v=${encodeURIComponent(state.next.name)}` : null;
+    if (thumbUrl && (await imageExists(thumbUrl))) {
+      if (!(nxt.firstChild && nxt.firstChild.tagName === 'IMG' && nxt.firstChild.dataset.src === thumbUrl)) {
+        const img = Object.assign(document.createElement('img'), { src: thumbUrl, className: 'thumb' });
+        img.dataset.src = thumbUrl;
+        nxt.replaceChildren(img);
+      }
+    } else {
+      showText(nxt, $('nextText') || Object.assign(document.createElement('div'), { id: 'nextText', className: 'mid-text' }), state.next ? state.next.name : 'End of show');
+    }
   }
   $('nextLabel').textContent = hasNextPage ? `Slide ${slide + 1}` : state.next ? `${state.next.number} · ${state.next.name}` : '';
+}
+
+const thumbChecks = new Map();
+function imageExists(url) {
+  if (!thumbChecks.has(url)) {
+    const check = fetch(url).then((r) => r.ok).catch(() => false);
+    thumbChecks.set(url, check);
+    // A thumbnail may still be generating: forget a miss after a few seconds.
+    check.then((ok) => { if (!ok) setTimeout(() => thumbChecks.delete(url), 5000); });
+  }
+  return thumbChecks.get(url);
 }
 
 // ---------- render ----------

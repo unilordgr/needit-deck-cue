@@ -72,6 +72,15 @@ function openZip(file) {
         const data = ent.method === 8 ? zlib.inflateRawSync(raw) : raw;
         return data.toString('utf8');
       },
+      // Raw bytes of one entry (e.g. docProps/thumbnail.jpeg).
+      readBuffer(name, maxBytes = 5 * 1024 * 1024) {
+        const ent = entries.get(name);
+        if (!ent || ent.uncompSize > maxBytes) return null;
+        const lh = readAt(fd, ent.localOffset, 30);
+        const dataStart = ent.localOffset + 30 + lh.readUInt16LE(26) + lh.readUInt16LE(28);
+        const raw = readAt(fd, dataStart, ent.compSize);
+        return ent.method === 8 ? zlib.inflateRawSync(raw) : raw;
+      },
       close() { fs.closeSync(fd); },
     };
   } catch (e) {

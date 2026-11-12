@@ -11,6 +11,7 @@ let env = { supportedExt: [] };
 let fileOk = {};
 let shortcutReport = {};
 let selectedId = null;
+let thumbs = {}; // cueId -> data: URL
 let capture = null; // { kind: 'cue' } | { kind: 'global', key }
 
 // ---------- helpers ----------
@@ -284,8 +285,9 @@ function renderGrid() {
       runtime.armedCueId === c.id && runtime.liveCueId !== c.id && 'armed',
       runtime.busyCueId === c.id && 'busy',
       selectedId === c.id && 'selected',
-      missing && 'missing'].filter(Boolean).join(' ');
-    return `<div class="${cls}" data-id="${c.id}" draggable="${!show.settings.locked}" style="--cue-color:${esc(c.color || COLORS[0])}">
+      missing && 'missing',
+      thumbs[c.id] && !missing && 'has-thumb'].filter(Boolean).join(' ');
+    return `<div class="${cls}" data-id="${c.id}" draggable="${!show.settings.locked}" style="--cue-color:${esc(c.color || COLORS[0])}${thumbs[c.id] && !missing ? `;--thumb:url('${thumbs[c.id]}')` : ''}">
       <div class="num">${i + 1}</div>
       <div class="badges">
         ${verBadge(c)}
@@ -874,6 +876,8 @@ async function init() {
     render();
   });
   api.on('displays', (d) => { displays = d; render(); });
+  api.on('thumbs', (t) => { thumbs = t || {}; renderGrid(); });
+  thumbs = (await api.thumbsGet()) || {};
   sync = await api.syncGet();
   renderSyncBadge();
   api.on('sync', (status) => { if (sync) { sync.status = status; renderSyncBadge(); if (!$('settings').hidden) renderSync(); } });

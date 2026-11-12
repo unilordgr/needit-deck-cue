@@ -20,6 +20,7 @@ const { createFollower } = require('./control/follower');
 const preflight = require('./preflight');
 const showmode = require('./showmode');
 const { createVersionWatcher } = require('./versions');
+const { createThumbnailer } = require('./thumbs');
 
 let win = null;
 let show = null;
@@ -262,6 +263,23 @@ function cueAutoSlideshow(cue) {
   return cue.autoSlideshow === true || cue.autoSlideshow === false ? cue.autoSlideshow : show.settings.defaultAutoSlideshow;
 }
 
+// ---------- thumbnails ----------
+let thumbnailer = null;
+let thumbs = {}; // cueId -> data: URL of the first slide
+
+async function refreshThumbs() {
+  if (!thumbnailer) return;
+  const next = {};
+  for (const cue of show.cues) {
+    const f = cue.file && cue.file.path;
+    if (f && fs.existsSync(f)) next[cue.id] = await thumbnailer.thumbnail(f);
+  }
+  const changed = JSON.stringify(Object.keys(next).map((k) => [k, (next[k] || '').length])) !== JSON.stringify(Object.keys(thumbs).map((k) => [k, (thumbs[k] || '').length]))
+    || Object.keys(next).some((k) => next[k] !== thumbs[k]);
+  thumbs = next;
+  if (changed && win && !win.isDestroyed()) win.webContents.send('thumbs', thumbs);
+}
+
 // ---------- version management ----------
 let versions = null;
 
@@ -279,6 +297,7 @@ function onVersions(snap) {
   }
   state.versions = snap;
   broadcast();
+  schedulePreflight(); // a changed file needs re-checking (and a new thumbnail)
 }
 
 function useNewerVersion(cueId) {
@@ -352,6 +371,7 @@ async function runPreflight() {
   }
   state.preflight = results;
   broadcast();
+  refreshThumbs();
 }
 
 // ---------- speaker timer and stage message ----------
@@ -792,6 +812,7 @@ function setupIpc() {
     try { return await pullShowFromMain(); } catch (e) { return { error: e.message }; }
   });
   ipcMain.handle('preflight:run', () => schedulePreflight(0));
+  ipcMain.handle('thumbs:get', () => thumbs);
   ipcMain.handle('version:use', (_e, cueId) => useNewerVersion(cueId));
   ipcMain.handle('version:ignore', (_e, cueId) => versions.ignoreNewer(cueId));
   ipcMain.handle('version:clear', (_e, cueId) => versions.clearChanged(cueId));
@@ -928,6 +949,12 @@ app.whenReady().then(() => {
       timer: timerCommand,
       stageMessage: setStageMessage,
       showMode: (on) => setShowMode(on),
+      cueThumb: (ref) => {
+        const t = thumbs[cueByRef(ref).id];
+        const m = t && /^data:([^;]+);base64,(.*)$/.exec(t);
+        if (!m) throw Object.assign(new Error('No thumbnail for that cue'), { code: 404 });
+        return { type: m[1], data: Buffer.from(m[2], 'base64') };
+      },
       cueFile: (ref) => {
         const c = cueByRef(ref);
         const f = c.file && c.file.path;
@@ -945,6 +972,7 @@ app.whenReady().then(() => {
   startSync();
   schedulePreflight(1500);
   if (prefs.showMode.autoStart) setShowMode(true);
+  thumbnailer = createThumbnailer({ cacheDir: userFile('thumbs'), probePdf: preflight.probePdf });
   versions = createVersionWatcher({ getCues: () => show.cues, onChange: onVersions });
   versions.start();
   // While a backup is connected, re-send the state every few seconds so it can correct any drift

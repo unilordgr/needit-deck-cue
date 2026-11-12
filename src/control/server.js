@@ -10,6 +10,7 @@
 //        POST /api/message?text=...&flash=1, /api/message/clear
 //        POST /api/showmode[?state=on|off]     show-machine mode (toggle without state)
 //        GET  /api/cue/<ref>/file             the cue's PDF (for stage display previews)
+//        GET  /api/cue/<ref>/thumb            first-slide thumbnail image
 //        GET  /stage                           stage display / confidence monitor page
 //        GET  /api/show                        the show file (cues and settings), for a backup to copy
 // WS     /api/ws                          sends {type:"state", state} on connect and on every change, and
@@ -91,6 +92,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     if (method === 'GET' && a === 'state' && !b) return { state: true };
     if (method === 'GET' && a === 'show' && !b) return { show: true };
     if (method === 'GET' && a === 'cue' && b && c === 'file') return { file: decodeURIComponent(b) };
+    if (method === 'GET' && a === 'cue' && b && c === 'thumb') return { thumb: decodeURIComponent(b) };
     if (method !== 'POST') return null;
     if (['go', 'stop', 'next', 'prev'].includes(a) && !b) return { action: a };
     if (a === 'blackout' && !b) {
@@ -124,6 +126,13 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     if (!r) return send(res, 404, { ok: false, error: 'Not found' });
     if (r.state) return send(res, 200, getState());
     if (r.show) return send(res, 200, getShow());
+    if (r.thumb) {
+      try {
+        const t = actions.cueThumb(r.thumb);
+        res.writeHead(200, { 'Content-Type': t.type, 'Content-Length': t.data.length, 'Cache-Control': 'no-store' });
+        return res.end(t.data);
+      } catch (e) { return send(res, e.code || 400, { ok: false, error: e.message }); }
+    }
     if (r.file) {
       try { return sendFile(res, actions.cueFile(r.file), 'application/pdf'); } catch (e) { return send(res, e.code || 400, { ok: false, error: e.message }); }
     }
