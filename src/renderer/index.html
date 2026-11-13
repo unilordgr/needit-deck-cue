@@ -8,49 +8,78 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="brand-co">needit</span> DECK <span>CUE</span></div>
-    <input id="showName" class="show-name" spellcheck="false" title="Show name">
+    <div class="brand"><span class="brand-co">needit</span> <span class="brand-name">Deck Cue</span></div>
+    <input id="showName" class="show-name" spellcheck="false" title="Show name" aria-label="Show name">
     <div class="spacer"></div>
-    <label class="field">
-      <span>Output</span>
-      <select id="defaultOutput" title="Default display for slideshows"></select>
-    </label>
-    <button id="showModeBtn" class="btn ghost showmode-btn" title="Show-machine mode: no sleep, quiet notifications, readiness checks">Show mode</button>
-    <button id="preflightBtn" class="btn ghost preflight-btn" title="Check every cue for missing files, fonts, media and output problems">Preflight</button>
-    <button id="identifyBtn" class="btn ghost" title="Show a number on every display">Identify</button>
-    <label class="toggle" title="New cues and cues set to 'Default' start the slideshow automatically">
-      <input type="checkbox" id="defaultAuto"><span>Auto fullscreen</span>
-    </label>
-    <button id="lockBtn" class="btn ghost" title="Lock editing (cues can still be fired)">🔓 Unlocked</button>
-    <button id="settingsBtn" class="btn ghost" title="Settings">⚙︎</button>
+    <button id="preflightBtn" class="btn tool preflight-btn" title="Check every cue for missing files, fonts, media and output problems">Preflight</button>
+    <button id="showModeBtn" class="btn tool showmode-btn" title="Show-machine mode: no sleep, quiet notifications, readiness checks">Show mode</button>
+    <button id="lockBtn" class="btn tool" title="Lock editing (cues can still be fired)">Unlocked</button>
+    <button id="settingsBtn" class="btn tool settings-btn" title="Settings"><span class="gear" aria-hidden="true">⚙︎</span> Settings</button>
   </header>
 
-  <section class="statusbar">
-    <div class="status-live"><b>LIVE</b> <span id="liveText">—</span></div>
-    <div class="status-armed"><b>NEXT</b> <span id="armedText">—</span></div>
-    <button id="presenterChip" class="presenter-chip" hidden title="Presenter phone remote: click to pause or allow">PRESENTER</button>
-    <div id="showModeBadge" class="showmode-badge" hidden>SHOW MODE</div>
-    <div id="syncBadge" class="sync-badge" hidden></div>
-    <div id="message" class="message" hidden></div>
+  <section class="tally" aria-label="Live and next cue">
+    <div id="tallyLive" class="tally-block live">
+      <span class="tally-word">Live</span>
+      <span id="liveNum" class="tally-num"></span>
+      <span id="liveText" class="tally-name">Nothing live</span>
+      <span id="liveSlide" class="tally-slide"></span>
+    </div>
+    <div id="tallyNext" class="tally-block next">
+      <span class="tally-word">Next</span>
+      <span id="armedNum" class="tally-num"></span>
+      <span id="armedText" class="tally-name">—</span>
+    </div>
+    <div class="chips">
+      <button id="presenterChip" class="presenter-chip" hidden title="Presenter phone remote: click to pause or allow">Presenter</button>
+      <div id="showModeBadge" class="showmode-badge" hidden>Show mode</div>
+      <div id="syncBadge" class="sync-badge" hidden></div>
+    </div>
   </section>
+  <div id="message" class="message" hidden></div>
 
-  <main id="grid" class="grid"></main>
+  <div class="workspace">
+    <main id="grid" class="grid"></main>
+
+    <aside class="rail" aria-label="Speaker timer, stage message and output">
+      <section class="rail-block timer-block" title="Speaker timer, shown on the stage display">
+        <div class="rail-title">Speaker timer</div>
+        <div id="timerDisplay" class="timer-display idle">00:00</div>
+        <div class="timer-controls">
+          <button id="timerStart" class="btn">Start</button>
+          <button id="timerReset" class="btn ghost">Reset</button>
+          <input id="timerSet" class="timer-set" placeholder="Set: 5 or 2:30" title="Set the timer: 5, 2:30 or 1:00:00, then Return">
+        </div>
+      </section>
+
+      <section class="rail-block">
+        <div class="rail-title">Message to stage</div>
+        <input id="stageMsg" class="stage-msg" placeholder="Type and press Return" maxlength="280">
+        <div class="msg-controls">
+          <label class="toggle" title="Flash the message on the stage display"><input type="checkbox" id="stageFlash"><span>Flash</span></label>
+          <button id="stageClear" class="btn ghost" title="Clear the stage message">Clear</button>
+        </div>
+      </section>
+
+      <section class="rail-block">
+        <div class="rail-title">Output</div>
+        <select id="defaultOutput" title="Default display for slideshows" aria-label="Default output"></select>
+        <div class="msg-controls">
+          <label class="toggle" title="New cues and cues set to 'Default' start the slideshow automatically">
+            <input type="checkbox" id="defaultAuto"><span>Auto fullscreen</span>
+          </label>
+          <button id="identifyBtn" class="btn ghost" title="Show a number on every display">Identify</button>
+        </div>
+      </section>
+    </aside>
+  </div>
 
   <footer class="transport">
     <button id="goBtn" class="btn go">GO <small>Space</small></button>
-    <button id="prevBtn" class="btn">◀ Slide <small>←</small></button>
-    <button id="nextBtn" class="btn">Slide ▶ <small>→</small></button>
-    <div class="stagebar" title="Speaker timer and stage message (shown on the stage display)">
-      <input id="timerSet" class="timer-set" placeholder="min" title="Set the timer: 5, 2:30 or 1:00:00, then Return">
-      <div id="timerDisplay" class="timer-display idle">--:--</div>
-      <button id="timerStart" class="btn small" title="Start / pause the timer">▶</button>
-      <button id="timerReset" class="btn small ghost" title="Reset the timer">⟲</button>
-      <input id="stageMsg" class="stage-msg" placeholder="Message to stage…" maxlength="280">
-      <label class="toggle small" title="Flash the message on the stage display"><input type="checkbox" id="stageFlash"><span>⚡</span></label>
-      <button id="stageClear" class="btn small ghost" title="Clear the stage message">✕</button>
-    </div>
-    <button id="blackoutBtn" class="btn blackout">BLACKOUT <small>B</small></button>
-    <button id="stopBtn" class="btn stop">STOP <small>Esc</small></button>
+    <button id="prevBtn" class="btn slide-btn">◀ Slide <small>←</small></button>
+    <button id="nextBtn" class="btn slide-btn">Slide ▶ <small>→</small></button>
+    <div class="spacer"></div>
+    <button id="blackoutBtn" class="btn blackout">Blackout <small>B</small></button>
+    <button id="stopBtn" class="btn stop">Stop <small>Esc</small></button>
   </footer>
 
   <aside id="editor" class="editor" hidden>
@@ -121,15 +150,15 @@
         <select id="setNewer"><option value="ask">Show it and ask</option><option value="auto">Switch to it automatically</option><option value="off">Ignore</option></select></label>
       <label class="toggle"><input type="checkbox" id="setTimerAuto"><span>Start the speaker timer when a cue with a timer fires</span></label>
       <label class="toggle"><input type="checkbox" id="setRefocus"><span>Bring Deck Cue back to the front after a cue starts</span></label>
-      <h3>Global shortcuts <small>work while the slideshow is in front · need a modifier key or an F-key</small></h3>
+      <h3>Global shortcuts <small>work while the slideshow is in front; need a modifier key or an F-key</small></h3>
       <div class="global-keys" id="globalKeys"></div>
-      <h3>MIDI <small>notes, program changes, MIDI Show Control · per computer</small></h3>
+      <h3>MIDI <small>notes, program changes and MIDI Show Control, for this computer</small></h3>
       <div id="midiSettings" class="remote"></div>
-      <h3>Presenter remote <small>speakers change slides from their phone · per computer</small></h3>
+      <h3>Presenter remote <small>speakers change slides from their phone, for this computer</small></h3>
       <div id="presenterSettings" class="remote"></div>
-      <h3>Main / backup <small>a backup computer follows the main one · per computer</small></h3>
+      <h3>Main / backup <small>a backup computer follows the main one, for this computer</small></h3>
       <div id="syncSettings" class="remote"></div>
-      <h3>Remote control <small>Bitfocus Companion, Stream Deck, OSC · per computer</small></h3>
+      <h3>Remote control <small>Bitfocus Companion, Stream Deck and OSC, for this computer</small></h3>
       <div id="remoteControl" class="remote"></div>
       <h3>System</h3>
       <div id="envInfo" class="env"></div>
@@ -160,7 +189,7 @@
     </div>
   </div>
 
-  <div id="dropHint" class="drop-hint" hidden>Drop on a cue to replace its file · drop on empty space to add cues</div>
+  <div id="dropHint" class="drop-hint" hidden>Drop on a cue to replace its file, or on empty space to add cues</div>
 
   <script src="app.js"></script>
 </body>

@@ -270,7 +270,7 @@ function renderPresenterChip() {
   const enabled = presenter ? presenter.enabled : false;
   chip.hidden = !enabled;
   const muted = !!runtime.presenterMuted;
-  chip.textContent = muted ? 'PRESENTER PAUSED' : 'PRESENTER ▶';
+  chip.textContent = muted ? 'Presenter paused' : 'Presenter remote on';
   chip.classList.toggle('muted', muted);
 }
 
@@ -298,7 +298,7 @@ function renderShowModeIndicators() {
   const on = !!runtime.showMode;
   $('showModeBadge').hidden = !on;
   $('showModeBtn').classList.toggle('on', on);
-  $('showModeBtn').textContent = on ? 'Show mode ON' : 'Show mode';
+  $('showModeBtn').textContent = on ? 'Show mode on' : 'Show mode';
   const t = $('showModeToggle');
   t.textContent = on ? 'Show mode is ON (click to turn off)' : 'Turn show mode on';
   t.classList.toggle('on', on);
@@ -423,7 +423,7 @@ function render() {
   if (document.activeElement !== $('showName')) $('showName').value = show.showName || '';
   $('defaultOutput').innerHTML = outputOptions(show.settings.defaultOutput, false);
   $('defaultAuto').checked = !!show.settings.defaultAutoSlideshow;
-  $('lockBtn').textContent = show.settings.locked ? '🔒 Locked' : '🔓 Unlocked';
+  $('lockBtn').textContent = show.settings.locked ? 'Locked' : 'Unlocked';
   $('lockBtn').classList.toggle('locked', !!show.settings.locked);
   renderGrid();
   renderStatus();
@@ -466,7 +466,7 @@ function renderGrid() {
   }).join('');
   const addTile = `<div class="add-tile" id="addTile"><div class="plus">+</div><div>Drop presentations here<br><small>or click to choose a file</small></div></div>`;
   const empty = show.cues.length === 0
-    ? `<div class="empty-state"><b>No cues yet.</b><br>Drag .pptx, .key or .pdf files anywhere in this window to create cues.</div>` : '';
+    ? `<div class="empty-state"><b>Drop presentations here to build the show</b>PowerPoint, Keynote and PDF files each become a cue. Drop several at once to add them in order.</div>` : '';
   grid.innerHTML = empty + html + addTile;
 }
 
@@ -474,8 +474,17 @@ function renderStatus() {
   const live = runtime.liveCueId && cueById(runtime.liveCueId);
   const armed = runtime.armedCueId && cueById(runtime.armedCueId);
   const idx = (c) => show.cues.indexOf(c) + 1;
-  $('liveText').textContent = live ? `${idx(live)} · ${cueName(live)}${runtime.liveDetail ? ` · ${runtime.liveDetail}` : ''}` : '—';
-  $('armedText').textContent = armed ? `${idx(armed)} · ${cueName(armed)}` : (show.cues[0] && !live ? `1 · ${cueName(show.cues[0])}` : '—');
+  const next = armed || (show.cues[0] && !live ? show.cues[0] : null);
+  // Tally strip: the live cue (red) and the next cue (amber), numbered like the cue buttons.
+  $('tallyLive').classList.toggle('on', !!live);
+  $('tallyLive').style.borderLeftColor = '';
+  $('liveNum').textContent = live ? idx(live) : '';
+  $('liveText').textContent = live ? cueName(live) : 'Nothing live';
+  $('liveSlide').textContent = live && runtime.liveSlide ? `${runtime.liveSlide}/${runtime.liveSlides}` : '';
+  $('liveSlide').title = live && runtime.liveSlide ? `Slide ${runtime.liveSlide} of ${runtime.liveSlides}` : '';
+  $('tallyNext').classList.toggle('on', !!next);
+  $('armedNum').textContent = next ? idx(next) : '';
+  $('armedText').textContent = next ? cueName(next) : (show.cues.length ? 'End of show' : 'No cues yet');
   const m = $('message');
   m.hidden = !runtime.message;
   m.textContent = runtime.message || '';
@@ -675,9 +684,9 @@ function tickTimer() {
   if (!t) return;
   const remaining = t.running ? t.endsAt - Date.now() : t.remaining;
   const idle = !t.running && !t.duration && !t.remaining;
-  el.textContent = idle ? '--:--' : fmtTimer(remaining);
+  el.textContent = idle ? '00:00' : fmtTimer(remaining);
   el.className = `timer-display${idle ? ' idle' : ''}${!idle && !t.running ? ' paused' : ''}${!idle && remaining < 0 ? ' over' : !idle && remaining <= 120000 ? ' warn' : ''}`;
-  $('timerStart').textContent = t.running ? '⏸' : '▶';
+  $('timerStart').textContent = t.running ? 'Pause' : 'Start';
 }
 
 // "5" = 5 minutes, "2:30" = 2 min 30 s, "1:00:00" = 1 hour.
@@ -1050,7 +1059,11 @@ async function init() {
     if (selectedId) renderEditor();
     if (!$('preflightModal').hidden) renderPreflightReport();
     tickTimer();
-    $('stageMsg').classList.toggle('sent', !!(s.stageMessage && s.stageMessage.text));
+    const onStage = (s.stageMessage && s.stageMessage.text) || '';
+    $('stageMsg').classList.toggle('sent', !!onStage);
+    // Show what's on stage now (from here, Companion or a backup's main), unless the operator is typing.
+    if (document.activeElement !== $('stageMsg')) $('stageMsg').value = onStage;
+    $('stageFlash').checked = !!(s.stageMessage && s.stageMessage.flash);
   });
   api.on('show', async (p) => {
     show = p.show; shortcutReport = p.shortcutReport || {};
