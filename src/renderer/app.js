@@ -1296,7 +1296,13 @@ function setupEditor() {
   $('blackoutBtn').onclick = () => api.blackout();
   $('nextBtn').onclick = () => api.nav('next');
   $('prevBtn').onclick = () => api.nav('previous');
-  $('message').onclick = () => api.clearMessage();
+  $('message').onclick = () => {
+    localFlash = null;
+    clearTimeout(flashTimer);
+    runtime = { ...runtime, message: null };
+    renderStatus();
+    api.clearMessage();
+  };
 }
 
 // ---------- keyboard ----------
