@@ -1,14 +1,17 @@
 {
   "name": "needit-deck-cue",
   "productName": "needit Deck Cue",
-  "version": "0.5.0",
-  "description": "Cue launcher for PowerPoint, WPS Office, Keynote and PDF presentations, for AV operators",
-  "main": "src/main.js",
+  "version": "0.6.0",
+  "description": "Cue launcher for PowerPoint, WPS Office, Keynote and PDF presentations, with a Command Center app that runs many of them from one computer",
+  "main": "src/index.js",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --mac",
     "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac"
+    "dist:mac": "electron-builder --mac",
+    "start:center": "electron . --center",
+    "dist:center:mac": "electron-builder --mac --config builder-center.json",
+    "dist:center:win": "electron-builder --win --config builder-center.json"
   },
   "build": {
     "appId": "com.needitcreative.deckcue",

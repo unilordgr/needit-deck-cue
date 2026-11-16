@@ -1,0 +1,52 @@
+{
+  "appId": "com.needitcreative.commandcenter",
+  "productName": "needit Command Center",
+  "copyright": "Copyright © 2026 needit Creative",
+  "directories": {
+    "output": "dist-center"
+  },
+  "extraMetadata": {
+    "name": "needit-command-center",
+    "productName": "needit Command Center",
+    "deckcueMode": "center",
+    "description": "Runs every needit Deck Cue on the network from one computer: send presentations, order them, play them."
+  },
+  "files": [
+    "src/**/*",
+    "package.json",
+    "!node_modules/@napi-rs/**",
+    "!node_modules/pdfjs-dist/{legacy,web,types,image_decoders,wasm}/**",
+    "!node_modules/pdfjs-dist/build/{pdf.mjs,pdf.worker.mjs,pdf.sandbox*}",
+    "!node_modules/pdfjs-dist/**/*.map"
+  ],
+  "mac": {
+    "category": "public.app-category.productivity",
+    "icon": "build/icon-center.png"
+  },
+  "win": {
+    "icon": "build/icon-center.png",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      },
+      {
+        "target": "portable",
+        "arch": [
+          "x64"
+        ]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "artifactName": "needit-Command-Center-Setup-${version}.${ext}",
+    "shortcutName": "needit Command Center"
+  },
+  "portable": {
+    "artifactName": "needit-Command-Center-Portable-${version}.${ext}"
+  }
+}

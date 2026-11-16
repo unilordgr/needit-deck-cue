@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+  <title>needit Command Center</title>
+  <link rel="stylesheet" href="center.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-co">needit</span> <span class="brand-name">Command Center</span></div>
+    <div id="summary" class="summary"></div>
+    <div class="spacer"></div>
+    <button id="addBtn" class="btn tool">Add a computer</button>
+    <button id="settingsBtn" class="btn tool">Settings</button>
+  </header>
+
+  <div id="notice" class="notice" hidden></div>
+
+  <main id="board" class="board" hidden></main>
+
+  <section id="empty" class="empty">
+    <h1>Looking for computers…</h1>
+    <p>Every computer that runs needit Deck Cue on this network shows up here by itself.</p>
+    <ol>
+      <li>Connect this computer and the show computers to the same network.</li>
+      <li>Open <b>needit Deck Cue</b> on each show computer.</li>
+      <li>There, open <b>Settings</b> and switch on <b>Connect to Command Center</b>.</li>
+    </ol>
+    <button id="emptyAdd" class="btn">Add a computer by its address instead</button>
+  </section>
+
+  <div id="addModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head"><h2>Add a computer</h2><button class="btn ghost" data-close>Close</button></div>
+      <p>Computers normally appear by themselves. If one doesn't, type the address that its Deck Cue shows under Settings › Command Center.</p>
+      <div class="add-row">
+        <input id="addAddress" placeholder="For example 192.168.1.20" autocomplete="off" spellcheck="false">
+        <button id="addGo" class="btn go">Add</button>
+      </div>
+      <div id="addError" class="error"></div>
+    </div>
+  </div>
+
+  <div id="presetsModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head"><h2 id="presetsTitle">Saved timers</h2><button class="btn" data-close>Done</button></div>
+      <p>One click on a saved timer sets it and starts it. Give one a name if it helps, like "Keynote" or "Q&amp;A".</p>
+      <div id="presetsList" class="presets-list"></div>
+      <div><button id="presetsAdd" class="btn">Add a timer</button></div>
+    </div>
+  </div>
+
+  <div id="settingsModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head"><h2>Settings</h2><button class="btn ghost" data-close>Close</button></div>
+      <label class="field">
+        <span>Network key</span>
+        <input id="setKey" placeholder="Leave empty unless the show computers have one" autocomplete="off" spellcheck="false">
+      </label>
+      <p>Only needed if you typed a network key on the show computers. It stops other people on the network from sending files to them.</p>
+      <p id="setName" class="muted"></p>
+    </div>
+  </div>
+
+  <script src="center.js"></script>
+</body>
+</html>

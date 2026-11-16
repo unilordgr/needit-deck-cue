@@ -2,7 +2,45 @@
 
 <img src="build/icon.png" width="128" alt="needit Deck Cue icon">
 
-A cue launcher for presentations on macOS, built for AV operators by **needit Creative**. It works with **Microsoft PowerPoint**, **WPS Office**, **Keynote** and **PDF** files (PDFs use a player built into the app).
+A cue launcher for presentations on macOS and Windows, built for AV operators by **needit Creative**. It works with **Microsoft PowerPoint**, **WPS Office**, **Keynote** and **PDF** files (PDFs use a player built into the app).
+
+There are two apps:
+- **needit Deck Cue** runs on every computer that shows presentations.
+- **needit Command Center** runs on one computer and controls all of them over the network.
+
+## Command Center
+
+Connect all the computers to the same network (a simple switch is enough). The Command Center then shows every show computer as a column, and you run the whole event from one seat.
+
+**Setup**
+1. Open **needit Deck Cue** on each show computer.
+2. In its **Settings › Command Center**, switch on **Connect to Command Center**.
+3. Open **needit Command Center** on your own computer. The show computers appear by themselves. If one doesn't, press **Add a computer** and type the address its Settings page shows.
+
+**What you can do from the Command Center**
+- **Send presentations:** drop files on a computer. They are copied to a folder on that computer (by default `needit Deck Cue` in the home folder) and added as cues. Drop on a cue to replace its file; drop on empty space to add.
+- **Order them:** drag cues up and down.
+- **Play them:** GO, Play on any cue, Stop, next and previous slide. Click a cue to make it the next one.
+- **Choose per cue** whether it opens **Full screen** or **Just opens**, and give it a **timer** that starts when it plays.
+- **Choose what the screen shows:** Slides, a full-screen **Timer** or the **Clock**. Under *More*: what to show between presentations, a small timer on top of the slides, and Blackout.
+- **Run the timer:** saved timers with one click, Start/Pause, −1 and +1 minute while it runs, another time, or `@15:30` to count down to a time of day.
+
+**Link: computers that play together**
+Press **Link** on two or more computers. They get a shared blue frame, and from then on anything you do on one happens on all of them:
+- Play, GO, Stop and slides
+- the timer and the screen mode
+- files you drop (so a main and its backup get the same list in one go)
+- changes to a cue: order, full screen, timer, remove
+
+Cues are matched by their position in the list, and you get a warning if the lists differ.
+
+**Safety**
+- A show computer only accepts files after you switch on *Connect to Command Center* on it.
+- It only takes presentation files (PowerPoint, Keynote, PDF), and only into its project folder.
+- Set the same **network key** on the show computers and in the Command Center's Settings to keep other people on the network out.
+- The show computers keep their own list. If the Command Center or the network goes away, they carry on and can be run locally.
+
+**Status:** tested on one Mac with two copies of Deck Cue and the Command Center (discovery, sending files, ordering, playing, timers, Link). Not yet tested between separate computers, or on Windows.
 
 ## Presentation apps
 Deck Cue detects which apps are installed (⚙︎ Settings › System lists them).
@@ -29,6 +67,14 @@ Deck Cue detects which apps are installed (⚙︎ Settings › System lists them
 - WPS has no scripting support, so Deck Cue clicks *Slide Show › Play*, types the slide number to jump, and sends arrow keys and Esc. Menu names are matched in **English**, so keep WPS's interface language set to English.
 - WPS can't close a deck while a slideshow is running. With *Close the previous presentation* on, Deck Cue closes the old deck *before* starting the next one, so the editor shows for a moment during the change. Turn on *black backdrop* in Settings to hide it on the output.
 - Don't leave a dialog open in WPS (Save, Recover, etc.). Deck Cue can't click Play while one is showing.
+
+## Timers
+
+- **Saved timers:** the row of numbers under the timer. One click sets a timer and starts it. **Edit timers** adds, renames or removes them (up to ten); they are saved with the show.
+- **While it runs:** **−1** and **+1** change the time by a minute. Start/Pause and Reset as usual.
+- **Another time:** type `5`, `2:30` or `1:00:00` and press Return. Type `@15:30` to count down to that time of day.
+- **Per presentation:** give a cue a *Timer (min)*. It starts by itself when that cue plays.
+- The bar under the time shows how much has been used. The time turns amber for the last two minutes and red when over.
 
 ## Timer on the output screen
 
@@ -147,6 +193,8 @@ In Companion, *Cue has preflight problems* and *Show has preflight problems* can
 
 ## Main / backup
 
+With a Command Center, the simplest way to run a main and a backup is to **Link** the two computers there (see *Command Center*). The built-in pairing below needs no Command Center: the backup follows the main directly.
+
 Run the same show on two computers. Each feeds the video switcher, and the **backup follows the main** in step:
 - cue fires, stop, next/previous slide and blackout
 - the NEXT cue
@@ -227,6 +275,8 @@ To install it:
 | `POST /api/cue/<number\|id\|name>/fire` · `/arm` | Fire or arm a cue |
 | `POST /api/arm/next`, `/api/arm/prev` | Move the NEXT cue |
 | `POST /api/timer/start`, `/pause`, `/reset`, `/set?seconds=N`, `/add?seconds=N` | Speaker timer (negative `add` removes time) |
+| `POST /api/timer/preset?n=N`, `/api/timer/until?time=HH:MM` | Start a saved timer; count down to a time of day |
+| `GET /api/info`, `PUT /api/files/<name>`, `POST /api/cues`, `/api/cue/<ref>/file`, `/update`, `/move?to=N`, `/delete` | Command Center: identify, receive files, manage cues (only when the computer accepts a Command Center; optional header `X-DeckCue-Key`) |
 | `POST /api/message?text=…&flash=1`, `/api/message/clear` | Stage message |
 | `POST /api/showmode[?state=on\|off]` | Show-machine mode (toggle without state) |
 | `POST /api/timerscreen[?state=on\|off]` | Full-screen timer on the output (toggle without state) |
@@ -273,7 +323,9 @@ There are two builds:
 
 Windows builds can't be made on an Apple Silicon Mac, so GitHub Actions makes them (`.github/workflows/build.yml`):
 1. Open *Actions › Build › Run workflow* (or push a `v*` tag).
-2. Download `needit-Deck-Cue-windows` (installer + portable) or `needit-Deck-Cue-mac` from the finished run.
+2. Download `needit-Deck-Cue-windows` (installer + portable) or `needit-Deck-Cue-mac` from the finished run. The Command Center is in `needit-Command-Center-windows` and `needit-Command-Center-mac`.
+
+Both apps come from the same code. The Command Center build uses `builder-center.json`, which marks the package as the Command Center; `src/index.js` then starts `src/center/` instead of the player. In development: `npm run start:center`.
 
 ## Run
 

@@ -2,6 +2,8 @@ const APP_NAME = 'needit Deck Cue';
 const { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Menu, systemPreferences, shell, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const crypto = require('crypto');
 
 const IS_MAC = process.platform === 'darwin';
 // Windows portable build: keep settings and autosave next to the .exe so the show travels with it.
@@ -22,6 +24,8 @@ const showmode = require('./showmode');
 const { createVersionWatcher } = require('./versions');
 const { createThumbnailer } = require('./thumbs');
 const timerScreen = require('./timerScreen');
+const { createManage } = require('./control/manage');
+const { createBeacon } = require('./control/beacon');
 
 let win = null;
 let show = null;
@@ -36,8 +40,13 @@ const DEFAULT_SHOWMODE = { autoStart: false };
 const newPin = () => String(Math.floor(1000 + Math.random() * 9000));
 const DEFAULT_PRESENTER = { enabled: false, pin: '' };
 // MIDI input (handled in the main window with Web MIDI). map: action -> learned message { type, ch, num }.
+// Command Center: lets one computer on the network send files to this player and manage its cues.
+// folder = where received files are kept (outside Documents, so macOS asks for no extra permission).
+const DEFAULT_CENTER = { accept: false, folder: '', key: '', name: '', id: '' };
 const DEFAULT_MIDI = { enabled: false, input: 'all', channel: 0, notes: true, noteBase: 60, programChange: true, msc: true, map: {} };
-let prefs = { control: { ...DEFAULT_CONTROL }, sync: { ...DEFAULT_SYNC }, showMode: { ...DEFAULT_SHOWMODE }, presenter: { ...DEFAULT_PRESENTER }, midi: { ...DEFAULT_MIDI } };
+let prefs = { control: { ...DEFAULT_CONTROL }, sync: { ...DEFAULT_SYNC }, showMode: { ...DEFAULT_SHOWMODE }, presenter: { ...DEFAULT_PRESENTER }, midi: { ...DEFAULT_MIDI }, center: { ...DEFAULT_CENTER } };
+let beacon = null;
+let centers = []; // names of Command Centers connected to this player
 let control = null;
 let follower = null;
 let followers = [];       // names of backups following this machine
@@ -57,7 +66,7 @@ const state = {
   presenterMuted: false, // operator paused the presenter phone remote
   versions: {}, // cueId -> { changedAt, newer: { path, name, mtime } } (see versions.js)
   // Timer on the output: forced = the Full screen button; preview = show the overlay while its editor is open.
-  timerScreen: { forced: false, preview: false, mode: 'off', content: 'timer', display: null, note: null },
+  timerScreen: { forced: false, forcedContent: 'timer', preview: false, mode: 'off', content: 'timer', display: null, note: null },
 };
 const blackoutWins = new Map();
 
@@ -76,6 +85,8 @@ function defaultShow() {
       defaultAutoSlideshow: true,
       timerAutoStart: true,           // start the speaker timer when a cue with a duration fires
       newerVersions: 'ask',           // a newer version of a cue's file in its folder: 'ask' | 'auto' | 'off'
+      // Saved timers: one click sets and starts them. name is optional ("Keynote", "Q&A").
+      timerPresets: [5, 10, 15, 20, 30].map((minutes) => ({ name: '', minutes })),
       // Timer on the output screen (see timerScreen.js).
       timerScreen: {
         idle: 'off',                  // full screen between presentations: 'off' | 'timer' | 'clock' (time of day)
@@ -97,10 +108,18 @@ function defaultShow() {
   };
 }
 
+function cleanPresets(list) {
+  if (!Array.isArray(list)) return null;
+  return list.slice(0, 10)
+    .map((p) => ({ name: String((p && p.name) || '').slice(0, 24), minutes: Math.round(Number(p && p.minutes) * 100) / 100 }))
+    .filter((p) => p.minutes > 0 && p.minutes <= 1440);
+}
+
 function normalizeShow(s) {
   const d = defaultShow();
   const settings = { ...d.settings, ...(s.settings || {}) };
   settings.globalKeys = { ...d.settings.globalKeys, ...((s.settings || {}).globalKeys || {}) };
+  settings.timerPresets = cleanPresets((s.settings || {}).timerPresets) || d.settings.timerPresets;
   const ts = (s.settings || {}).timerScreen || {};
   settings.timerScreen = { ...d.settings.timerScreen, ...ts, pip: { ...d.settings.timerScreen.pip, ...(ts.pip || {}) } };
   return { ...d, ...s, settings, cues: Array.isArray(s.cues) ? s.cues : [] };
@@ -127,7 +146,10 @@ function loadInitial() {
     showMode: { ...DEFAULT_SHOWMODE, ...(saved.showMode || {}) },
     presenter: { ...DEFAULT_PRESENTER, ...(saved.presenter || {}) },
     midi: { ...DEFAULT_MIDI, ...(saved.midi || {}) },
+    center: { ...DEFAULT_CENTER, ...(saved.center || {}) },
   };
+  if (!prefs.center.id) prefs.center.id = crypto.randomUUID();
+  if (!prefs.center.folder) prefs.center.folder = path.join(os.homedir(), 'needit Deck Cue');
   if (!prefs.presenter.pin) prefs.presenter.pin = newPin();
   const auto = readJSON(userFile('autosave.deckcue'));
   show = normalizeShow(auto || defaultShow());
@@ -475,6 +497,7 @@ function updateTimerScreen() {
   let note = null;
   if (rt.forced) {
     mode = 'full';
+    content = rt.forcedContent === 'clock' ? 'clock' : 'timer';
   } else if (!state.live && ts.idle !== 'off') {
     // Never cover the operator's own screen automatically (DECKCUE_TEST_COVER is for single-screen testing).
     if (coversOperator && !process.env.DECKCUE_TEST_COVER) note = 'Full screen between presentations needs a second screen. On this one it would cover Deck Cue.';
@@ -495,9 +518,103 @@ function updateTimerScreen() {
   }).catch((e) => console.error('timer screen', e));
 }
 
-function setTimerScreenForced(on) {
-  state.timerScreen.forced = on === undefined ? !state.timerScreen.forced : !!on;
+// content: 'timer' or 'clock' (time of day).
+function setTimerScreenForced(on, content) {
+  const rt = state.timerScreen;
+  // Asking for the other content while it is already up switches it instead of hiding it.
+  const switching = on === undefined && rt.forced && content && content !== rt.forcedContent;
+  rt.forced = switching ? true : on === undefined ? !rt.forced : !!on;
+  if (content) rt.forcedContent = content;
   broadcast();
+}
+
+// ---------- Command Center (files and cue management from another computer) ----------
+function playerName() {
+  return prefs.center.name || `${os.hostname().replace(/\.local$/, '')}${PROFILE ? ` (${PROFILE})` : ''}`;
+}
+
+function playerInfo() {
+  return { app: APP_NAME, id: prefs.center.id, name: playerName(), platform: process.platform, version: app.getVersion(), show: show.showName };
+}
+
+function showChanged() {
+  dirty = true;
+  autosave(); registerShortcuts(); sendShow(); broadcast(); schedulePreflight();
+  if (versions) versions.scan();
+}
+
+const CUE_FIELDS = ['label', 'autoSlideshow', 'startSlide', 'duration', 'notes', 'color', 'output', 'presenterControl'];
+const manageActions = {
+  info: playerInfo,
+  addCue({ file, index, label, autoSlideshow }) {
+    const cue = {
+      id: crypto.randomUUID().slice(0, 8), label: label ? String(label).slice(0, 120) : '', file: { path: file }, app: 'auto',
+      autoSlideshow: autoSlideshow === true || autoSlideshow === false ? autoSlideshow : null,
+      startSlide: 1, output: 'default', shortcut: null, color: '#3a4150', notes: '',
+    };
+    const at = Number.isInteger(index) ? Math.min(show.cues.length, Math.max(0, index - 1)) : show.cues.length;
+    show.cues.splice(at, 0, cue);
+    if (!state.armedCueId && !state.live) state.armedCueId = show.cues[0].id;
+    showChanged();
+    return { id: cue.id, number: at + 1 };
+  },
+  setCueFile(ref, file) {
+    const cue = cueByRef(ref);
+    cue.file = { path: file };
+    showChanged();
+    return { id: cue.id };
+  },
+  updateCue(ref, patch) {
+    const cue = cueByRef(ref);
+    for (const k of CUE_FIELDS) {
+      if (!(k in patch)) continue;
+      if (k === 'autoSlideshow') cue.autoSlideshow = patch[k] === true || patch[k] === false ? patch[k] : null;
+      else if (k === 'startSlide') cue.startSlide = Math.max(1, parseInt(patch[k], 10) || 1);
+      else if (k === 'duration') cue.duration = Math.max(0, Number(patch[k]) || 0) || null;
+      else if (k === 'output') cue.output = ['default', 'auto', 'window'].includes(patch[k]) ? patch[k] : cue.output;
+      else if (k === 'presenterControl') cue.presenterControl = patch[k] !== false;
+      else cue[k] = String(patch[k] == null ? '' : patch[k]).slice(0, k === 'notes' ? 4000 : 120);
+    }
+    showChanged();
+    return { id: cue.id };
+  },
+  moveCue(ref, to) {
+    const cue = cueByRef(ref);
+    if (!Number.isInteger(to) || to < 1) throw Object.assign(new Error('Give the new position as ?to=<number>'), { code: 400 });
+    show.cues.splice(show.cues.indexOf(cue), 1);
+    show.cues.splice(Math.min(show.cues.length, to - 1), 0, cue);
+    showChanged();
+    return { number: show.cues.indexOf(cue) + 1 };
+  },
+  deleteCue(ref) {
+    const cue = cueByRef(ref);
+    if (cue.id === state.liveCueId || cue.id === state.busyCueId) throw Object.assign(new Error('That cue is live. Stop it first.'), { code: 409 });
+    show.cues = show.cues.filter((c) => c.id !== cue.id);
+    if (state.armedCueId === cue.id) state.armedCueId = null;
+    showChanged();
+    return {};
+  },
+  setTimerPresets(body) {
+    const list = cleanPresets(body && body.presets);
+    if (!list) throw Object.assign(new Error('Send { presets: [{ name, minutes }] }'), { code: 400 });
+    show.settings.timerPresets = list;
+    showChanged();
+    return {};
+  },
+  timerScreenConfig(patch) {
+    const ts = show.settings.timerScreen;
+    if (['off', 'timer', 'clock'].includes(patch.idle)) ts.idle = patch.idle;
+    if ('livePip' in patch) ts.livePip = !!patch.livePip;
+    if ('showClock' in patch) ts.showClock = !!patch.showClock;
+    if ('title' in patch) ts.title = String(patch.title || '').slice(0, 60);
+    showChanged();
+    return {};
+  },
+};
+
+function startBeacon() {
+  if (!beacon) beacon = createBeacon(() => (prefs.center.accept && prefs.control.enabled ? { ...playerInfo(), port: prefs.control.httpPort } : null));
+  if (prefs.center.accept) beacon.start(); else beacon.stop();
 }
 
 // ---------- speaker timer and stage message ----------
@@ -518,8 +635,25 @@ function timerCommand(cmd, seconds) {
   } else if (cmd === 'reset') {
     state.timer = { ...t, running: false, remaining: t.duration, endsAt: null };
   } else if (cmd === 'add') {
+    // Changing the time on the fly also moves the total, so progress bars stay meaningful.
     const ms = Math.round(Number(seconds) || 0) * 1000;
-    state.timer = t.running ? { ...t, endsAt: t.endsAt + ms } : { ...t, remaining: t.remaining + ms };
+    const duration = Math.max(0, t.duration + ms);
+    state.timer = t.running ? { ...t, duration, endsAt: t.endsAt + ms } : { ...t, duration, remaining: t.remaining + ms };
+  } else if (cmd === 'preset') {
+    // A saved timer: set it and start it in one go. `seconds` carries its position, 1-based.
+    const p = show.settings.timerPresets[Math.round(Number(seconds)) - 1];
+    if (!p) throw Object.assign(new Error('No such saved timer'), { code: 404 });
+    const ms = Math.round(p.minutes * 60000);
+    state.timer = { duration: ms, remaining: ms, endsAt: Date.now() + ms, running: true };
+  } else if (cmd === 'until') {
+    // Count down to a time of day ("15:30"); tomorrow if that time has passed today.
+    const m = /^(\d{1,2})[:.](\d{2})$/.exec(String(seconds || '').trim());
+    if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) throw Object.assign(new Error('Give the time as HH:MM'), { code: 400 });
+    const target = new Date();
+    target.setHours(Number(m[1]), Number(m[2]), 0, 0);
+    if (target.getTime() <= Date.now()) target.setDate(target.getDate() + 1);
+    const ms = target.getTime() - Date.now();
+    state.timer = { duration: ms, remaining: ms, endsAt: target.getTime(), running: true };
   } else {
     throw Object.assign(new Error(`Unknown timer command ${cmd}`), { code: 404 });
   }
@@ -678,10 +812,10 @@ const CLICKER_KEYS = [['PageDown', 'next'], ['PageUp', 'previous'], ['Right', 'n
 // ---------- ipc ----------
 // ---------- remote control ----------
 function cueByRef(ref) {
+  // An id wins (ids can happen to be all digits), then a position, then a name.
   const n = typeof ref === 'number' ? ref : /^\d+$/.test(String(ref)) ? Number(ref) : null;
-  const cue = n !== null
-    ? show.cues[n - 1]
-    : show.cues.find((c) => c.id === ref) || show.cues.find((c) => cueName(c).toLowerCase() === String(ref).toLowerCase());
+  const cue = show.cues.find((c) => c.id === ref)
+    || (n !== null ? show.cues[n - 1] : show.cues.find((c) => cueName(c).toLowerCase() === String(ref).toLowerCase()));
   if (!cue) throw Object.assign(new Error(`No cue ${ref}`), { code: 404 });
   return cue;
 }
@@ -875,8 +1009,13 @@ function remoteState() {
     role: prefs.sync.role,
     showMode: state.showMode,
     presenter: { enabled: !!prefs.presenter.enabled, muted: !!state.presenterMuted },
-    timerScreen: { mode: state.timerScreen.mode, content: state.timerScreen.content, forced: !!state.timerScreen.forced },
+    timerScreen: {
+      mode: state.timerScreen.mode, content: state.timerScreen.content, forced: !!state.timerScreen.forced,
+      idle: show.settings.timerScreen.idle, livePip: !!show.settings.timerScreen.livePip,
+    },
+    player: { id: prefs.center.id, name: playerName(), platform: process.platform },
     timer: { duration: state.timer.duration, remaining: timerRemaining(), running: state.timer.running, endsAt: state.timer.endsAt },
+    timerPresets: show.settings.timerPresets,
     stageMessage: state.stageMessage,
     next: ref(nextCue),
     loading: ref(state.busyCueId && show.cues.find((c) => c.id === state.busyCueId)),
@@ -887,8 +1026,11 @@ function remoteState() {
       const st = c.id === state.busyCueId ? 'loading' : c.id === state.liveCueId ? 'live' : nextCue && c.id === nextCue.id ? 'next' : missing ? 'missing' : 'idle';
       const pf = state.preflight[c.id];
       const ver = state.versions[c.id] || {};
+      const cueApp = c.file ? presenters.appFor(c.app, c.file.path, show.settings.pptApp) : null;
       return {
         number: i + 1, id: c.id, name: cueName(c), color: c.color || null, state: st, missing,
+        file: c.file ? path.basename(c.file.path) : null, fullscreen: cueAutoSlideshow(c), duration: c.duration || null,
+        app: cueApp && presenters.APPS[cueApp] ? presenters.APPS[cueApp].short : null,
         preflight: pf ? pf.level : null, changed: !!ver.changedAt, newer: ver.newer ? ver.newer.name : null,
       };
     }),
@@ -951,7 +1093,26 @@ function setupIpc() {
   });
   ipcMain.handle('preflight:run', () => schedulePreflight(0));
   ipcMain.handle('thumbs:get', () => thumbs);
-  ipcMain.handle('timerscreen:force', (_e, on) => setTimerScreenForced(on));
+  const centerInfo = () => ({ config: prefs.center, name: playerName(), centers, addresses: localAddresses(), port: prefs.control.httpPort });
+  ipcMain.handle('center:get', centerInfo);
+  ipcMain.handle('center:set', (_e, patch) => {
+    prefs.center = { ...prefs.center, ...patch, id: prefs.center.id };
+    if (!prefs.center.folder) prefs.center.folder = path.join(os.homedir(), 'needit Deck Cue');
+    // A Command Center is another computer, so the player must be reachable on the network.
+    if (prefs.center.accept && (!prefs.control.allowNetwork || !prefs.control.enabled)) {
+      prefs.control.allowNetwork = true; prefs.control.enabled = true; startControl();
+    }
+    autosave();
+    startBeacon();
+    if (control) control.update();
+    return centerInfo();
+  });
+  ipcMain.handle('center:pickFolder', async () => {
+    const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], defaultPath: prefs.center.folder });
+    return r.canceled ? null : r.filePaths[0];
+  });
+  ipcMain.handle('center:openFolder', () => { fs.mkdirSync(prefs.center.folder, { recursive: true }); return shell.openPath(prefs.center.folder); });
+  ipcMain.handle('timerscreen:force', () => setTimerScreenForced(!state.timerScreen.forced, 'timer'));
   ipcMain.handle('timerscreen:preview', (_e, on) => { state.timerScreen.preview = !!on; broadcast(); });
   ipcMain.handle('midi:get', () => prefs.midi);
   ipcMain.handle('midi:set', (_e, config) => { prefs.midi = { ...DEFAULT_MIDI, ...config }; autosave(); return prefs.midi; });
@@ -1095,6 +1256,8 @@ app.whenReady().then(() => {
     getState: remoteState,
     getShow: () => show,
     onFollowers: (names) => { followers = names; sendSync(); },
+    onCenters: (names) => { centers = names; if (win && !win.isDestroyed()) win.webContents.send('centers', centers); },
+    manage: createManage({ getConfig: () => prefs.center, extensions: presenters.SUPPORTED_EXT, actions: manageActions }),
     actions: {
       go,
       stop: stopAll,
@@ -1108,7 +1271,7 @@ app.whenReady().then(() => {
       showMode: (on) => setShowMode(on),
       presenter: presenterAction,
       presenterMute: (on) => setPresenterMuted(on),
-      timerScreen: (on) => setTimerScreenForced(on),
+      timerScreen: (on, content) => setTimerScreenForced(on, content),
       cueThumb: (ref) => {
         const t = thumbs[cueByRef(ref).id];
         const m = t && /^data:([^;]+);base64,(.*)$/.exec(t);
@@ -1129,6 +1292,7 @@ app.whenReady().then(() => {
   createWindow();
   registerShortcuts();
   startControl();
+  startBeacon();
   startSync();
   schedulePreflight(1500);
   if (prefs.showMode.autoStart) setShowMode(true);
@@ -1146,7 +1310,7 @@ app.whenReady().then(() => {
   screen.on('display-metrics-changed', onDisplays);
 });
 
-app.on('will-quit', () => { globalShortcut.unregisterAll(); hideBlack(); preflight.closeProbe(); timerScreen.close(); if (control) control.stop(); if (follower) follower.stop(); });
+app.on('will-quit', () => { globalShortcut.unregisterAll(); hideBlack(); preflight.closeProbe(); timerScreen.close(); if (beacon) beacon.stop(); if (control) control.stop(); if (follower) follower.stop(); });
 app.on('window-all-closed', () => app.quit());
 // Turn show mode off before quitting so notification settings are restored.
 app.on('before-quit', async (e) => {

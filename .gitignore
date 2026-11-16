@@ -6,3 +6,4 @@ dist/
 companion-module/node_modules/
 companion-module/*.tgz
 companion-module/pkg/
+dist-center/

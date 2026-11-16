@@ -262,6 +262,63 @@ function setupMidi() {
   });
 }
 
+// ---------- Command Center ----------
+let centerInfo = null; // { config, name, centers, addresses, port }
+
+function renderCenterChip() {
+  const chip = $('centerChip');
+  const names = centerInfo ? centerInfo.centers : [];
+  chip.hidden = !names.length;
+  chip.textContent = names.length ? `Command Center: ${names.join(', ')}` : '';
+}
+
+function renderCenterSettings() {
+  const box = $('centerSettings');
+  if (!centerInfo) { box.textContent = 'Loading…'; return; }
+  const c = centerInfo.config;
+  const connected = centerInfo.centers.length > 0;
+  const address = centerInfo.addresses.length ? `${centerInfo.addresses[0]}:${centerInfo.port}` : null;
+  box.innerHTML = `
+    <label class="toggle big"><input type="checkbox" data-cc="accept" ${c.accept ? 'checked' : ''}><span>Connect to Command Center</span></label>
+    ${c.accept ? `
+    <div class="cc-status ${connected ? 'ok' : ''}">${connected ? `Connected to ${esc(centerInfo.centers.join(', '))}.` : 'Waiting for a Command Center on this network…'}</div>
+    <label class="row wide"><span>This computer is called</span><input data-cc="name" value="${esc(c.name)}" placeholder="${esc(centerInfo.name)}" maxlength="40"></label>
+    <div class="row wide"><span>Presentations are saved in</span>
+      <div class="file-box"><div class="file-path">${esc(c.folder)}</div>
+        <div class="file-actions"><button class="btn small" data-cc-act="pick">Change folder</button><button class="btn small ghost" data-cc-act="open">Open folder</button></div></div></div>
+    <label class="row wide"><span>Network key (optional)</span><input data-cc="key" value="${esc(c.key)}" placeholder="None" autocomplete="off" spellcheck="false"></label>
+    <p class="hint">With a network key, only a Command Center that has the same key can send files here.</p>
+    ${address ? `<p class="hint">If this computer does not appear in the Command Center by itself, add it there with this address: <b>${esc(address)}</b></p>` : '<p class="hint status-bad">This computer is not on a network yet.</p>'}` : `
+    <p class="hint">Switch this on and this computer shows up in the Command Center by itself. Presentations sent from there are saved here and added as cues.</p>`}`;
+}
+
+async function saveCenter(patch) {
+  centerInfo = await api.centerSet(patch);
+  remote = await api.controlGet();
+  renderCenterSettings();
+  renderCenterChip();
+}
+
+function setupCenter() {
+  $('centerSettings').addEventListener('change', (e) => {
+    const k = e.target.dataset.cc;
+    if (k) saveCenter({ [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value.trim() });
+  });
+  $('centerSettings').addEventListener('click', async (e) => {
+    const a = e.target.dataset.ccAct;
+    if (a === 'open') api.centerOpenFolder();
+    if (a === 'pick') { const folder = await api.centerPickFolder(); if (folder) saveCenter({ folder }); }
+  });
+  // Settings sections: one pane at a time.
+  document.querySelector('.set-nav').addEventListener('click', (e) => {
+    const pane = e.target.dataset.pane;
+    if (!pane) return;
+    document.querySelectorAll('.set-nav [data-pane]').forEach((b) => b.classList.toggle('on', b.dataset.pane === pane));
+    document.querySelectorAll('.set-body [data-pane]').forEach((sec) => { sec.hidden = sec.dataset.pane !== pane; });
+    document.querySelector('.set-body').scrollTop = 0;
+  });
+}
+
 // ---------- timer on the output screen ----------
 const tsCfg = () => show.settings.timerScreen;
 let tsSaveTimer = null;
@@ -568,6 +625,7 @@ function render() {
   renderStatus();
   renderEditor();
   renderPreflightButton();
+  renderPresets();
   if (!$('settings').hidden) renderSettings();
   if (!$('preflightModal').hidden) renderPreflightReport();
 }
@@ -695,6 +753,7 @@ function renderSettings() {
   renderSync();
   renderPresenterSettings();
   renderMidiSettings();
+  renderCenterSettings();
   $('envInfo').innerHTML = `
     ${(env.apps || []).map((a) => `<div>${esc(a.name)}: ${a.installed ? '<span class="ok">installed</span>' : '<span class="bad">not found</span>'}</div>`).join('')}
     ${IS_MAC ? `<div>Accessibility (needed for WPS Office, and to send slideshows to a chosen output): ${env.accessibility ? '<span class="ok">allowed</span>' : '<span class="bad">not allowed</span> <button class="btn small" id="grantAx">Open settings</button>'}</div>
@@ -826,6 +885,10 @@ function tickTimer() {
   el.textContent = idle ? '00:00' : fmtTimer(remaining);
   el.className = `timer-display${idle ? ' idle' : ''}${!idle && !t.running ? ' paused' : ''}${!idle && remaining < 0 ? ' over' : !idle && remaining <= 120000 ? ' warn' : ''}`;
   $('timerStart').textContent = t.running ? 'Pause' : 'Start';
+  // How much of the time has been used.
+  const used = idle || !t.duration ? 0 : Math.min(1, Math.max(0, 1 - remaining / t.duration));
+  $('timerBar').style.width = `${used * 100}%`;
+  $('timerBar').parentElement.className = `timer-bar${!idle && remaining < 0 ? ' over' : !idle && remaining <= 120000 ? ' warn' : ''}`;
 }
 
 // "5" = 5 minutes, "2:30" = 2 min 30 s, "1:00:00" = 1 hour.
@@ -838,15 +901,75 @@ function parseDuration(text) {
   return null;
 }
 
+// ---------- saved timers ----------
+const presetLabel = (p) => `${p.name ? `${p.name} ` : ''}${p.minutes}`;
+
+function renderPresets() {
+  const list = show.settings.timerPresets || [];
+  $('timerPresets').innerHTML = list.map((p, i) => `<button class="preset" data-preset="${i + 1}" title="Start a ${p.minutes}-minute timer${p.name ? ` (${esc(p.name)})` : ''}">${esc(presetLabel(p))}</button>`).join('');
+}
+
+function renderPresetsEditor() {
+  const list = show.settings.timerPresets || [];
+  $('presetsList').innerHTML = list.map((p, i) => `<div class="preset-row" data-row="${i}">
+      <input data-pname value="${esc(p.name)}" placeholder="Name (optional)" maxlength="24">
+      <input data-pmin type="number" min="0.5" max="1440" step="0.5" value="${p.minutes}" aria-label="Minutes">
+      <span>min</span>
+      <button class="btn ghost small" data-premove>Remove</button>
+    </div>`).join('') || '<p class="hint">No saved timers yet.</p>';
+  $('presetsAdd').disabled = list.length >= 10;
+}
+
+function setupPresets() {
+  $('presetsEdit').onclick = () => { $('presetsModal').hidden = false; renderPresetsEditor(); };
+  $('timerPresets').onclick = (e) => {
+    const n = e.target.dataset.preset;
+    if (n) api.timerCmd('preset', Number(n));
+  };
+  const save = () => { commit(); };
+  $('presetsList').addEventListener('change', (e) => {
+    const row = e.target.closest('[data-row]');
+    if (!row) return;
+    const p = show.settings.timerPresets[Number(row.dataset.row)];
+    if (e.target.matches('[data-pname]')) p.name = e.target.value.trim();
+    if (e.target.matches('[data-pmin]')) p.minutes = Math.min(1440, Math.max(0.5, Number(e.target.value) || p.minutes));
+    save();
+  });
+  $('presetsList').addEventListener('click', (e) => {
+    if (!e.target.matches('[data-premove]')) return;
+    show.settings.timerPresets.splice(Number(e.target.closest('[data-row]').dataset.row), 1);
+    save();
+    renderPresetsEditor();
+  });
+  $('presetsAdd').onclick = () => {
+    const list = show.settings.timerPresets;
+    list.push({ name: '', minutes: list.length ? list[list.length - 1].minutes + 5 : 5 });
+    save();
+    renderPresetsEditor();
+  };
+  const close = () => { $('presetsModal').hidden = true; };
+  $('presetsClose').onclick = close;
+  $('presetsModal').onclick = (e) => { if (e.target === $('presetsModal')) close(); };
+}
+
 function setupStageBar() {
   $('timerSet').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
-    const seconds = parseDuration(e.target.value);
-    if (seconds === null) return flash('Timer: type minutes (5), mm:ss (2:30) or h:mm:ss.', 'warn');
-    api.timerCmd('set', seconds);
+    const text = e.target.value.trim();
+    // "@15:30" counts down to that time of day.
+    const until = /^@\s*(\d{1,2}[:.]\d{2})$/.exec(text);
+    if (until) {
+      api.timerCmd('until', until[1].replace('.', ':'));
+    } else {
+      const seconds = parseDuration(text);
+      if (seconds === null) return flash('Timer: type minutes (5), minutes and seconds (2:30), or @15:30 for a time of day.', 'warn');
+      api.timerCmd('set', seconds);
+    }
     e.target.value = '';
     e.target.blur();
   });
+  $('timerMinus').onclick = () => api.timerCmd('add', -60);
+  $('timerPlus').onclick = () => api.timerCmd('add', 60);
   $('timerStart').onclick = () => api.timerCmd(runtime.timer && runtime.timer.running ? 'pause' : 'start');
   $('timerReset').onclick = () => api.timerCmd('reset');
   const send = () => api.stageMessage($('stageMsg').value.trim(), $('stageFlash').checked);
@@ -1053,6 +1176,7 @@ function setupEditor() {
     remote = await api.controlGet();
     sync = await api.syncGet();
     presenter = await api.presenterGet();
+    centerInfo = await api.centerGet();
     $('settings').hidden = false;
     renderSettings();
   };
@@ -1139,6 +1263,7 @@ function setupKeyboard() {
     if (!$('preflightModal').hidden) { if (e.key === 'Escape') $('preflightModal').hidden = true; return; }
     if (!$('showModeModal').hidden) { if (e.key === 'Escape') $('showModeModal').hidden = true; return; }
     if (!$('timerScreenModal').hidden) { if (e.key === 'Escape') $('tsClose').click(); return; }
+    if (!$('presetsModal').hidden) { if (e.key === 'Escape') $('presetsModal').hidden = true; return; }
     const accel = accelFromEvent(e);
     if (!accel) return;
     // Cue shortcuts (global ones are handled by the main process, which also fires while we're focused).
@@ -1181,8 +1306,10 @@ async function init() {
   setupEditor();
   setupKeyboard();
   setupStageBar();
+  setupPresets();
   setupShowMode();
   setupTimerScreen();
+  setupCenter();
   setupMidi();
   midi = await api.midiGet();
   startMidi();
@@ -1217,6 +1344,13 @@ async function init() {
   });
   api.on('displays', (d) => { displays = d; render(); });
   api.on('thumbs', (t) => { thumbs = t || {}; renderGrid(); });
+  api.on('centers', (names) => {
+    if (centerInfo) centerInfo.centers = names;
+    renderCenterChip();
+    if (!$('settings').hidden) renderCenterSettings();
+  });
+  centerInfo = await api.centerGet();
+  renderCenterChip();
   thumbs = (await api.thumbsGet()) || {};
   sync = await api.syncGet();
   renderSyncBadge();

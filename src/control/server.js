@@ -6,7 +6,8 @@
 //        POST /api/blackout[?state=on|off] (toggle without state)
 //        POST /api/cue/<number|id>/fire | /api/cue/<number|id>/arm
 //        POST /api/arm/next | /api/arm/prev
-//        POST /api/timer/start | pause | reset, /api/timer/set?seconds=N, /api/timer/add?seconds=N
+//        POST /api/timer/start | pause | reset, /api/timer/set?seconds=N, /api/timer/add?seconds=N,
+//             /api/timer/preset?n=<position> (set and start a saved timer), /api/timer/until?time=HH:MM
 //        POST /api/message?text=...&flash=1, /api/message/clear
 //        POST /api/showmode[?state=on|off]     show-machine mode (toggle without state)
 //        POST /api/timerscreen[?state=on|off]  full-screen timer on the output (toggle without state)
@@ -54,7 +55,7 @@ const STATIC = {
   '/stage/pdf.worker.min.mjs': [path.join(PDFJS_DIR, 'build', 'pdf.worker.min.mjs'), 'text/javascript; charset=utf-8'],
 };
 
-function createControlServer({ getState, getShow, actions, onStatus, onFollowers }) {
+function createControlServer({ getState, getShow, actions, onStatus, onFollowers, onCenters = () => {}, manage = null }) {
   let config = null;
   let httpServer = null;
   let wss = null;
@@ -84,7 +85,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
       case 'timer': return actions.timer(arg.cmd, arg.seconds);
       case 'message': return actions.stageMessage(arg.text, arg.flash);
       case 'showmode': return actions.showMode(arg);
-      case 'timerscreen': return actions.timerScreen(arg);
+      case 'timerscreen': return actions.timerScreen(arg.on, arg.content);
       case 'presenter-mute': return actions.presenterMute(arg);
       default: throw Object.assign(new Error(`Unknown action ${action}`), { code: 404 });
     }
@@ -112,7 +113,10 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     }
     if (a === 'cue' && b && (c === 'fire' || c === 'arm')) return { action: c, arg: decodeURIComponent(b) };
     if (a === 'arm' && (b === 'next' || b === 'prev') && !c) return { action: `arm-${b}` };
-    if (a === 'timer' && ['start', 'pause', 'reset', 'set', 'add'].includes(b) && !c) return { action: 'timer', arg: { cmd: b, seconds: query.get('seconds') } };
+    if (a === 'timer' && ['start', 'pause', 'reset', 'set', 'add', 'preset', 'until'].includes(b) && !c) {
+      // preset takes ?n=<position>, until takes ?time=HH:MM, the others ?seconds=
+      return { action: 'timer', arg: { cmd: b, seconds: b === 'preset' ? query.get('n') : b === 'until' ? query.get('time') : query.get('seconds') } };
+    }
     if (a === 'message' && !b) return { action: 'message', arg: { text: query.get('text') || '', flash: ['1', 'true', 'on'].includes(query.get('flash')) } };
     if (a === 'message' && b === 'clear' && !c) return { action: 'message', arg: { text: '', flash: false } };
     if (a === 'presenter' && ['check', 'next', 'prev'].includes(b) && !c) return { presenter: b };
@@ -122,7 +126,8 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     }
     if (a === 'timerscreen' && !b) {
       const st = query.get('state');
-      return { action: 'timerscreen', arg: st === 'on' ? true : st === 'off' ? false : undefined };
+      // content=clock shows the time of day instead of the timer.
+      return { action: 'timerscreen', arg: { on: st === 'on' ? true : st === 'off' ? false : undefined, content: query.get('content') === 'clock' ? 'clock' : 'timer' } };
     }
     if (a === 'showmode' && !b) {
       const st = query.get('state');
@@ -142,6 +147,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
   function onRequest(req, res) {
     const url = new URL(req.url, 'http://localhost');
     if (req.method === 'GET' && STATIC[url.pathname]) return sendFile(res, ...STATIC[url.pathname]);
+    if (manage && manage.handle(req, res, url, send)) return; // Command Center: files and cue management
     const r = route(req.method, url.pathname, url.searchParams);
     if (!r) return send(res, 404, { ok: false, error: 'Not found' });
     if (r.state) return send(res, 200, getState());
@@ -201,7 +207,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
         else if (parts[0] === 'message' && parts.length === 1) run('message', { text: args.length ? String(args[0]) : '', flash: args.length > 1 && Boolean(args[1]) });
         else if (parts[0] === 'message' && parts[1] === 'clear' && parts.length === 2) run('message', { text: '', flash: false });
         else if (parts[0] === 'showmode' && parts.length === 1) run('showmode', args.length ? Boolean(args[0]) : undefined);
-        else if (parts[0] === 'timerscreen' && parts.length === 1) run('timerscreen', args.length ? Boolean(args[0]) : undefined);
+        else if (parts[0] === 'timerscreen' && parts.length === 1) run('timerscreen', { on: args.length ? Boolean(args[0]) : undefined, content: 'timer' });
       } catch { /* ignore bad OSC input */ }
     }
   }
@@ -267,6 +273,10 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
           ws.backupName = (url.searchParams.get('name') || req.socket.remoteAddress || 'backup').slice(0, 64);
           ws.on('close', reportFollowers);
           reportFollowers();
+        } else if (url.searchParams.get('role') === 'center') {
+          ws.centerName = (url.searchParams.get('name') || req.socket.remoteAddress || 'Command Center').slice(0, 64);
+          ws.on('close', reportCenters);
+          reportCenters();
         }
         ws.send(JSON.stringify({ type: 'state', state: getState() }));
       });
@@ -278,6 +288,11 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     udp.on('message', onOsc);
     udp.on('error', (e) => setStatus({ osc: `error: ${e.code === 'EADDRINUSE' ? `port ${config.oscPort} is in use` : e.message}` }));
     udp.bind(Number(config.oscPort), host, () => setStatus({ osc: `listening on ${host}:${config.oscPort}` }));
+  }
+
+  function reportCenters() {
+    if (!wss) return onCenters([]);
+    onCenters([...new Set([...wss.clients].filter((c) => c.centerName && c.readyState === 1).map((c) => c.centerName))]);
   }
 
   function reportFollowers() {

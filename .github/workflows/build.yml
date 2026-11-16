@@ -19,10 +19,17 @@ jobs:
         run: node scripts/check-win-driver.js
       - name: Build installer and portable exe
         run: npx electron-builder --win --x64 --publish never
+      - name: Build the Command Center
+        run: npx electron-builder --win --x64 --config builder-center.json --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: needit-Deck-Cue-windows
           path: dist/*.exe
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: needit-Command-Center-windows
+          path: dist-center/*.exe
           if-no-files-found: error
 
   mac:
@@ -40,11 +47,19 @@ jobs:
         run: |
           npx electron-builder --mac dir --arm64 --publish never
           codesign --force --deep -s - "dist/mac-arm64/needit Deck Cue.app"
-          cd dist && ditto -c -k --keepParent "mac-arm64/needit Deck Cue.app" needit-Deck-Cue-mac-arm64.zip
+          (cd dist && ditto -c -k --keepParent "mac-arm64/needit Deck Cue.app" needit-Deck-Cue-mac-arm64.zip)
+          npx electron-builder --mac dir --arm64 --config builder-center.json --publish never
+          codesign --force --deep -s - "dist-center/mac-arm64/needit Command Center.app"
+          (cd dist-center && ditto -c -k --keepParent "mac-arm64/needit Command Center.app" needit-Command-Center-mac-arm64.zip)
       - uses: actions/upload-artifact@v4
         with:
           name: needit-Deck-Cue-mac
           path: dist/needit-Deck-Cue-mac-arm64.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: needit-Command-Center-mac
+          path: dist-center/needit-Command-Center-mac-arm64.zip
           if-no-files-found: error
 
   companion-module:

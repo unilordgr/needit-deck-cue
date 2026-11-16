@@ -17,6 +17,7 @@ Controls [needit Deck Cue](https://github.com/unilordgr/needit-deck-cue), a cue 
 - **Show-machine mode**: toggle, on or off.
 - **Presenter remote: pause / allow**.
 - **Timer: start / pause / start-pause / reset / set (minutes) / add or remove time**: the speaker timer on Deck Cue's stage display.
+- **Timer: start a saved timer** (by its position) and **Timer: count down to a time of day**.
 - **Timer: full screen on the output**: show, hide or toggle the full-screen timer on the audience screen.
 - **Stage message: show / clear**: text on the stage display, optionally flashing. Variables are allowed.
 

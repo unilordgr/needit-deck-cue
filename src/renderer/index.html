@@ -30,6 +30,7 @@
       <span id="armedText" class="tally-name">—</span>
     </div>
     <div class="chips">
+      <div id="centerChip" class="center-chip" hidden title="A Command Center is connected to this computer"></div>
       <button id="presenterChip" class="presenter-chip" hidden title="Presenter phone remote: click to pause or allow">Presenter</button>
       <div id="showModeBadge" class="showmode-badge" hidden>Show mode</div>
       <div id="syncBadge" class="sync-badge" hidden></div>
@@ -42,13 +43,17 @@
 
     <aside class="rail" aria-label="Speaker timer, stage message and output">
       <section class="rail-block timer-block" title="Speaker timer, shown on the stage display">
-        <div class="rail-title">Speaker timer</div>
+        <div class="rail-title split">Speaker timer <button id="presetsEdit" class="link" title="Add, change or remove the saved timers">Edit timers</button></div>
         <div id="timerDisplay" class="timer-display idle">00:00</div>
+        <div class="timer-bar" aria-hidden="true"><i id="timerBar"></i></div>
         <div class="timer-controls">
           <button id="timerStart" class="btn">Start</button>
+          <button id="timerMinus" class="btn ghost" title="Take one minute off, also while it runs">−1</button>
+          <button id="timerPlus" class="btn ghost" title="Add one minute, also while it runs">+1</button>
           <button id="timerReset" class="btn ghost">Reset</button>
-          <input id="timerSet" class="timer-set" placeholder="Set: 5 or 2:30" title="Set the timer: 5, 2:30 or 1:00:00, then Return">
         </div>
+        <div id="timerPresets" class="presets" aria-label="Saved timers"></div>
+        <input id="timerSet" class="timer-set" placeholder="Other time: 5, 2:30 or @15:30" title="Type minutes (5), minutes and seconds (2:30), or @15:30 to count down to that time of day. Then press Return.">
         <div class="timer-screen">
           <button id="timerFullBtn" class="btn" title="Show the timer full screen on the output now, over anything that is playing">Full screen</button>
           <button id="timerScreenBtn" class="btn ghost" title="Choose what the output shows: full screen between presentations, a corner overlay during them">On screen…</button>
@@ -141,32 +146,75 @@
   </aside>
 
   <div id="settings" class="modal" hidden>
-    <div class="modal-card">
-      <div class="editor-head">
+    <div class="modal-card settings-card">
+      <nav class="set-nav" aria-label="Settings sections">
         <h2>Settings</h2>
-        <button id="settingsClose" class="btn ghost small">✕</button>
+        <button data-pane="center" class="on">Command Center</button>
+        <button data-pane="show">Playing presentations</button>
+        <button data-pane="keys">Keyboard shortcuts</button>
+        <button data-pane="presenter">Presenter remote</button>
+        <button data-pane="backup">Main and backup</button>
+        <button data-pane="remote">Stream Deck and remote</button>
+        <button data-pane="midi">MIDI</button>
+        <button data-pane="system">This computer</button>
+        <div class="spacer"></div>
+        <button id="settingsClose" class="btn">Done</button>
+      </nav>
+      <div class="set-body">
+        <section data-pane="center">
+          <h3>Command Center</h3>
+          <p class="lead">One computer on the network can send presentations to this one and run them. It needs the needit Command Center app.</p>
+          <div id="centerSettings" class="remote"></div>
+        </section>
+
+        <section data-pane="show" hidden>
+          <h3>Playing presentations</h3>
+          <p class="lead">How decks open and what happens when you go from one cue to the next.</p>
+          <label class="row wide"><span>Open PowerPoint files with</span><select id="setPptApp"></select></label>
+          <label class="row wide"><span>When a newer version of a file appears</span>
+            <select id="setNewer"><option value="ask">Show it and ask</option><option value="auto">Switch to it automatically</option><option value="off">Ignore it</option></select></label>
+          <label class="toggle"><input type="checkbox" id="setClosePrev"><span>Close the previous presentation when the next cue starts</span></label>
+          <label class="toggle"><input type="checkbox" id="setBackdrop"><span>Show a black screen while switching cues</span></label>
+          <label class="toggle"><input type="checkbox" id="setTimerAuto"><span>Start the speaker timer when a cue with a timer starts</span></label>
+          <label class="toggle"><input type="checkbox" id="setRefocus"><span>Bring Deck Cue back to the front after a cue starts</span></label>
+        </section>
+
+        <section data-pane="keys" hidden>
+          <h3>Keyboard shortcuts</h3>
+          <p class="lead">These work even while the slideshow is in front. Each needs a modifier key (⌘ ⌃ ⌥, or Ctrl / Alt on Windows) or an F-key, so they never block the clicker. Shortcuts for single cues are set in each cue.</p>
+          <div class="global-keys" id="globalKeys"></div>
+        </section>
+
+        <section data-pane="presenter" hidden>
+          <h3>Presenter remote</h3>
+          <p class="lead">Speakers change their own slides from their phone. They only get Next and Previous, and you can pause it at any time.</p>
+          <div id="presenterSettings" class="remote"></div>
+        </section>
+
+        <section data-pane="backup" hidden>
+          <h3>Main and backup</h3>
+          <p class="lead">A second computer follows this one cue for cue, ready to take over if this one fails.</p>
+          <div id="syncSettings" class="remote"></div>
+        </section>
+
+        <section data-pane="remote" hidden>
+          <h3>Stream Deck and remote</h3>
+          <p class="lead">For Bitfocus Companion, Stream Deck, OSC from a lighting desk, and the stage display.</p>
+          <div id="remoteControl" class="remote"></div>
+        </section>
+
+        <section data-pane="midi" hidden>
+          <h3>MIDI</h3>
+          <p class="lead">Fire cues from a MIDI keyboard, a lighting desk or QLab.</p>
+          <div id="midiSettings" class="remote"></div>
+        </section>
+
+        <section data-pane="system" hidden>
+          <h3>This computer</h3>
+          <p class="lead">What is installed and allowed here.</p>
+          <div id="envInfo" class="env"></div>
+        </section>
       </div>
-      <h3>Presentation app</h3>
-      <label class="row wide"><span>Open .ppt / .pptx with</span><select id="setPptApp"></select></label>
-      <h3>Changeover</h3>
-      <label class="toggle"><input type="checkbox" id="setClosePrev"><span>Close the previous presentation when the next cue starts</span></label>
-      <label class="toggle"><input type="checkbox" id="setBackdrop"><span>Show a black backdrop on the output while switching cues</span></label>
-      <label class="row wide"><span>Newer version of a file in its folder</span>
-        <select id="setNewer"><option value="ask">Show it and ask</option><option value="auto">Switch to it automatically</option><option value="off">Ignore</option></select></label>
-      <label class="toggle"><input type="checkbox" id="setTimerAuto"><span>Start the speaker timer when a cue with a timer fires</span></label>
-      <label class="toggle"><input type="checkbox" id="setRefocus"><span>Bring Deck Cue back to the front after a cue starts</span></label>
-      <h3>Global shortcuts <small>work while the slideshow is in front; need a modifier key or an F-key</small></h3>
-      <div class="global-keys" id="globalKeys"></div>
-      <h3>MIDI <small>notes, program changes and MIDI Show Control, for this computer</small></h3>
-      <div id="midiSettings" class="remote"></div>
-      <h3>Presenter remote <small>speakers change slides from their phone, for this computer</small></h3>
-      <div id="presenterSettings" class="remote"></div>
-      <h3>Main / backup <small>a backup computer follows the main one, for this computer</small></h3>
-      <div id="syncSettings" class="remote"></div>
-      <h3>Remote control <small>Bitfocus Companion, Stream Deck and OSC, for this computer</small></h3>
-      <div id="remoteControl" class="remote"></div>
-      <h3>System</h3>
-      <div id="envInfo" class="env"></div>
     </div>
   </div>
 
@@ -181,6 +229,18 @@
       <h3>Readiness <button id="showModeRefresh" class="btn small ghost">Check again</button></h3>
       <ul id="showModeItems" class="pf-list"></ul>
       <div id="focusHelp" class="focus-help" hidden></div>
+    </div>
+  </div>
+
+  <div id="presetsModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="editor-head">
+        <h2>Saved timers</h2>
+        <button id="presetsClose" class="btn">Done</button>
+      </div>
+      <p class="lead">One click on a saved timer sets it and starts it. Give one a name if it helps, like "Keynote" or "Q&amp;A".</p>
+      <div id="presetsList" class="presets-list"></div>
+      <div><button id="presetsAdd" class="btn">Add a timer</button></div>
     </div>
   </div>
 

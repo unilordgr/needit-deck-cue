@@ -236,6 +236,16 @@ class DeckCueInstance extends InstanceBase {
 				callback: () => this.post(this.state && this.state.timer && this.state.timer.running ? '/api/timer/pause' : '/api/timer/start'),
 			},
 			timer_reset: { name: 'Timer: reset', options: [], callback: () => this.post('/api/timer/reset') },
+			timer_preset: {
+				name: 'Timer: start a saved timer',
+				options: [{ type: 'number', id: 'n', label: 'Saved timer (1 = the first one)', default: 1, min: 1, max: 10 }],
+				callback: (a) => this.post(`/api/timer/preset?n=${Math.round(Number(a.options.n))}`),
+			},
+			timer_until: {
+				name: 'Timer: count down to a time of day',
+				options: [{ type: 'textinput', id: 'time', label: 'Time (HH:MM, 24-hour)', default: '15:30' }],
+				callback: (a) => this.post(`/api/timer/until?time=${encodeURIComponent(String(a.options.time).trim())}`),
+			},
 			timer_set: {
 				name: 'Timer: set',
 				options: [
