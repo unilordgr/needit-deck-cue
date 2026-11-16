@@ -21,6 +21,7 @@ const preflight = require('./preflight');
 const showmode = require('./showmode');
 const { createVersionWatcher } = require('./versions');
 const { createThumbnailer } = require('./thumbs');
+const timerScreen = require('./timerScreen');
 
 let win = null;
 let show = null;
@@ -55,6 +56,8 @@ const state = {
   showMode: false, // show-machine mode (no sleep, notifications quiet)
   presenterMuted: false, // operator paused the presenter phone remote
   versions: {}, // cueId -> { changedAt, newer: { path, name, mtime } } (see versions.js)
+  // Timer on the output: forced = the Full screen button; preview = show the overlay while its editor is open.
+  timerScreen: { forced: false, preview: false, mode: 'off', content: 'timer', display: null, note: null },
 };
 const blackoutWins = new Map();
 
@@ -73,6 +76,16 @@ function defaultShow() {
       defaultAutoSlideshow: true,
       timerAutoStart: true,           // start the speaker timer when a cue with a duration fires
       newerVersions: 'ask',           // a newer version of a cue's file in its folder: 'ask' | 'auto' | 'off'
+      // Timer on the output screen (see timerScreen.js).
+      timerScreen: {
+        idle: 'off',                  // full screen between presentations: 'off' | 'timer' | 'clock' (time of day)
+        livePip: false,               // corner overlay while a presentation is live
+        display: 'output',            // 'output' = follow the show's output, or a display ref
+        title: '',                    // line above the full-screen figure, e.g. "Starting in"
+        showClock: false,             // time of day under the full-screen timer
+        // Overlay layout: centre (x, y) and height h as fractions of the screen.
+        pip: { x: 0.9, y: 0.1, h: 0.12, bg: 'solid', label: '', content: 'timer' },
+      },
       pptApp: 'auto',                 // app for .ppt/.pptx: 'auto' (first installed) | 'powerpoint' | 'wps' | 'keynote'
       closePrevious: true,            // close the previous cue's presentation after the new one starts
       refocusAfterFire: false,        // bring Deck Cue back to front after a cue starts
@@ -88,6 +101,8 @@ function normalizeShow(s) {
   const d = defaultShow();
   const settings = { ...d.settings, ...(s.settings || {}) };
   settings.globalKeys = { ...d.settings.globalKeys, ...((s.settings || {}).globalKeys || {}) };
+  const ts = (s.settings || {}).timerScreen || {};
+  settings.timerScreen = { ...d.settings.timerScreen, ...ts, pip: { ...d.settings.timerScreen.pip, ...(ts.pip || {}) } };
   return { ...d, ...s, settings, cues: Array.isArray(s.cues) ? s.cues : [] };
 }
 
@@ -435,6 +450,56 @@ async function runPreflight() {
   refreshThumbs();
 }
 
+// ---------- timer on the output screen ----------
+// The display it uses: its own choice, else the show's output, else the first external display.
+function timerScreenDisplay() {
+  const ts = show.settings.timerScreen;
+  let d = ts.display && ts.display !== 'output' ? resolveOutput(ts.display) : null;
+  if (!d) d = resolveOutput(show.settings.defaultOutput);
+  if (!d) {
+    const primary = screen.getPrimaryDisplay();
+    d = screen.getAllDisplays().find((x) => x.id !== primary.id) || primary;
+  }
+  return d;
+}
+
+// Decides what the output shows and pushes it to the timer window. Called on every state change.
+function updateTimerScreen() {
+  const ts = show.settings.timerScreen;
+  const rt = state.timerScreen;
+  const d = timerScreenDisplay();
+  const operator = win && !win.isDestroyed() ? screen.getDisplayMatching(win.getBounds()) : screen.getPrimaryDisplay();
+  const coversOperator = d.id === operator.id;
+  let mode = 'off';
+  let content = 'timer';
+  let note = null;
+  if (rt.forced) {
+    mode = 'full';
+  } else if (!state.live && ts.idle !== 'off') {
+    // Never cover the operator's own screen automatically (DECKCUE_TEST_COVER is for single-screen testing).
+    if (coversOperator && !process.env.DECKCUE_TEST_COVER) note = 'Full screen between presentations needs a second screen. On this one it would cover Deck Cue.';
+    else { mode = 'full'; content = ts.idle === 'clock' ? 'clock' : 'timer'; }
+  } else if (state.live && ts.livePip) {
+    mode = 'pip';
+  }
+  if (mode === 'off' && rt.preview) mode = 'pip';
+  const label = listDisplays().find((x) => x.id === d.id);
+  state.timerScreen = {
+    ...rt, mode, content, note,
+    display: { label: label ? label.label : 'Display', width: d.bounds.width, height: d.bounds.height, coversOperator },
+  };
+  timerScreen.update({
+    // Only the Full screen button can cover the operator's own screen; a click on the timer then hides it.
+    mode, display: d, clickToClose: mode === 'full' && coversOperator && rt.forced,
+    payload: { content, timer: state.timer, config: ts },
+  }).catch((e) => console.error('timer screen', e));
+}
+
+function setTimerScreenForced(on) {
+  state.timerScreen.forced = on === undefined ? !state.timerScreen.forced : !!on;
+  broadcast();
+}
+
 // ---------- speaker timer and stage message ----------
 function timerRemaining() {
   const t = state.timer;
@@ -675,6 +740,7 @@ function onMainState(main) {
     const offset = (main.now || Date.now()) - Date.now();
     state.timer = { ...main.timer, endsAt: main.timer.endsAt ? main.timer.endsAt - offset : null };
     state.stageMessage = main.stageMessage || { text: '', flash: false };
+    if (main.timerScreen) state.timerScreen.forced = !!main.timerScreen.forced;
     changed = true;
   }
   const want = main.live ? localCueFor(main.live) : null;
@@ -809,6 +875,7 @@ function remoteState() {
     role: prefs.sync.role,
     showMode: state.showMode,
     presenter: { enabled: !!prefs.presenter.enabled, muted: !!state.presenterMuted },
+    timerScreen: { mode: state.timerScreen.mode, content: state.timerScreen.content, forced: !!state.timerScreen.forced },
     timer: { duration: state.timer.duration, remaining: timerRemaining(), running: state.timer.running, endsAt: state.timer.endsAt },
     stageMessage: state.stageMessage,
     next: ref(nextCue),
@@ -839,6 +906,7 @@ function sendShow() {
 }
 
 function broadcast() {
+  updateTimerScreen();
   if (win && !win.isDestroyed()) win.webContents.send('state', state);
   if (control) control.update();
 }
@@ -856,6 +924,7 @@ function setupIpc() {
     show = normalizeShow(s); dirty = true;
     if (state.armedCueId && !show.cues.some((c) => c.id === state.armedCueId)) state.armedCueId = null;
     autosave(); registerShortcuts(); updateTitle();
+    updateTimerScreen();
     if (control) control.update();
     schedulePreflight();
     return { shortcutReport, dirty };
@@ -882,6 +951,8 @@ function setupIpc() {
   });
   ipcMain.handle('preflight:run', () => schedulePreflight(0));
   ipcMain.handle('thumbs:get', () => thumbs);
+  ipcMain.handle('timerscreen:force', (_e, on) => setTimerScreenForced(on));
+  ipcMain.handle('timerscreen:preview', (_e, on) => { state.timerScreen.preview = !!on; broadcast(); });
   ipcMain.handle('midi:get', () => prefs.midi);
   ipcMain.handle('midi:set', (_e, config) => { prefs.midi = { ...DEFAULT_MIDI, ...config }; autosave(); return prefs.midi; });
   ipcMain.handle('presenter:get', () => presenterInfo());
@@ -1037,6 +1108,7 @@ app.whenReady().then(() => {
       showMode: (on) => setShowMode(on),
       presenter: presenterAction,
       presenterMute: (on) => setPresenterMuted(on),
+      timerScreen: (on) => setTimerScreenForced(on),
       cueThumb: (ref) => {
         const t = thumbs[cueByRef(ref).id];
         const m = t && /^data:([^;]+);base64,(.*)$/.exec(t);
@@ -1061,19 +1133,20 @@ app.whenReady().then(() => {
   schedulePreflight(1500);
   if (prefs.showMode.autoStart) setShowMode(true);
   thumbnailer = createThumbnailer({ cacheDir: userFile('thumbs'), probePdf: preflight.probePdf });
+  timerScreen.onDismiss(() => setTimerScreenForced(false));
   versions = createVersionWatcher({ getCues: () => show.cues, onChange: onVersions });
   versions.start();
   setInterval(pollPosition, 1000);
   // While a backup is connected, re-send the state every few seconds so it can correct any drift
   // (e.g. its own clicker moved a slide) even when nothing changes on the main.
   setInterval(() => { if (followers.length && control) control.update(); }, 3000);
-  const onDisplays = () => { if (win) win.webContents.send('displays', listDisplays()); schedulePreflight(); };
+  const onDisplays = () => { if (win) win.webContents.send('displays', listDisplays()); schedulePreflight(); broadcast(); };
   screen.on('display-added', onDisplays);
   screen.on('display-removed', onDisplays);
   screen.on('display-metrics-changed', onDisplays);
 });
 
-app.on('will-quit', () => { globalShortcut.unregisterAll(); hideBlack(); preflight.closeProbe(); if (control) control.stop(); if (follower) follower.stop(); });
+app.on('will-quit', () => { globalShortcut.unregisterAll(); hideBlack(); preflight.closeProbe(); timerScreen.close(); if (control) control.stop(); if (follower) follower.stop(); });
 app.on('window-all-closed', () => app.quit());
 // Turn show mode off before quitting so notification settings are restored.
 app.on('before-quit', async (e) => {

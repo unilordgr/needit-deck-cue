@@ -246,6 +246,12 @@ body.locked .add-tile { display: none; }
 .timer-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .timer-controls .timer-set { grid-column: 1 / -1; }
 .timer-controls .btn { padding: 10px; }
+.timer-screen { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.timer-screen .btn { padding: 9px 8px; }
+#timerFullBtn.on { background: var(--armed); border-color: var(--armed); color: #000; }
+.rail-note { font-size: 13px; color: var(--muted); line-height: 1.3; }
+.rail-note:empty { display: none; }
+.rail-note.warn { color: #ffd66b; }
 .msg-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .msg-controls .toggle { white-space: nowrap; }
 .msg-controls .btn { padding: 7px 12px; }
@@ -340,6 +346,35 @@ body.locked .add-tile { display: none; }
 .midi-monitor { font-size: 13px; color: var(--muted); }
 
 .drop-hint { position: fixed; bottom: 96px; left: 50%; transform: translateX(-50%); background: var(--signal); color: #fff; padding: 9px 18px; border-radius: 20px; font-weight: 700; pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+
+/* ---------- timer on screen: layout editor ----------
+   .pip rules mirror src/timer/screen.css so the preview matches the output. */
+.ts-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.ts-preview {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--r);
+  border: 1px solid var(--line); background: #3b4250 center / cover no-repeat; user-select: none; touch-action: none;
+}
+.ts-preview .pip {
+  position: absolute; transform: translate(-50%, -50%); cursor: grab;
+  height: 1em; padding: 0 .24em; border-radius: .16em;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: #fff; white-space: nowrap;
+}
+.ts-preview .pip:active { cursor: grabbing; }
+.ts-preview .pip[data-bg="solid"] { background: rgba(10, 11, 13, .94); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .16); }
+.ts-preview .pip[data-bg="glass"] { background: rgba(10, 11, 13, .55); }
+.ts-preview .pip[data-bg="none"] { text-shadow: 0 .02em .1em rgba(0, 0, 0, .95), 0 0 .03em #000; }
+.ts-preview .pip-time { font: 800 .78em/1 var(--num); font-variant-numeric: tabular-nums; }
+.ts-preview .pip-label { font: 600 .17em/1 var(--ui); color: #c9ccd1; margin-bottom: .25em; }
+.ts-preview .pip-label:not([hidden]) + .pip-time { font-size: .62em; }
+.ts-handle {
+  position: absolute; right: -7px; bottom: -7px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--signal); border: 2px solid #fff; cursor: nwse-resize;
+}
+.ts-options { display: flex; flex-direction: column; gap: 9px; }
+.ts-options .row { grid-template-columns: 84px 1fr; }
+.ts-corners { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.ts-corners .btn { font-size: 16px; padding: 4px 0; }
 
 /* ---------- smaller windows ---------- */
 @media (max-width: 1280px) {

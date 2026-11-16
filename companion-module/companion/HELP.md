@@ -17,11 +17,13 @@ Controls [needit Deck Cue](https://github.com/unilordgr/needit-deck-cue), a cue 
 - **Show-machine mode**: toggle, on or off.
 - **Presenter remote: pause / allow**.
 - **Timer: start / pause / start-pause / reset / set (minutes) / add or remove time**: the speaker timer on Deck Cue's stage display.
+- **Timer: full screen on the output**: show, hide or toggle the full-screen timer on the audience screen.
 - **Stage message: show / clear**: text on the stage display, optionally flashing. Variables are allowed.
 
 ### Feedbacks
 - **Cue is live** (red), **Cue is next** (yellow), **Cue is loading**, **Cue file missing**.
 - **Blackout is on**, **Something is live**.
+- **Timer or clock is full screen on the output**.
 - **Show mode is on**, **Presenter remote is paused**.
 - **Cue file changed on disk**, **Newer version of the cue file available**.
 - **Cue has preflight problems** (error, or anything to check) and **Show has preflight problems**.
@@ -29,7 +31,7 @@ Controls [needit Deck Cue](https://github.com/unilordgr/needit-deck-cue), a cue 
 - **Cue colour**: the colour set on the cue in Deck Cue.
 
 ### Variables
-- `show_name`, `role` (standalone/main/backup), `preflight` (Ready / 2 to check / 1 won't play), `show_mode` (ON/OFF), `presenter` (ON/PAUSED/OFF)
+- `show_name`, `role` (standalone/main/backup), `preflight` (Ready / 2 to check / 1 won't play), `show_mode` (ON/OFF), `timer_screen` (off/overlay/full/clock), `presenter` (ON/PAUSED/OFF)
 - `live_number`, `live_name`, `next_number`, `next_name`
 - `slide`, `slides`, `slide_text` (for example "3/12"; for PDF cues)
 - `blackout`, `cue_count`, and `cue_N_name` for every cue

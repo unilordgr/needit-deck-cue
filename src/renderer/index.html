@@ -49,6 +49,11 @@
           <button id="timerReset" class="btn ghost">Reset</button>
           <input id="timerSet" class="timer-set" placeholder="Set: 5 or 2:30" title="Set the timer: 5, 2:30 or 1:00:00, then Return">
         </div>
+        <div class="timer-screen">
+          <button id="timerFullBtn" class="btn" title="Show the timer full screen on the output now, over anything that is playing">Full screen</button>
+          <button id="timerScreenBtn" class="btn ghost" title="Choose what the output shows: full screen between presentations, a corner overlay during them">On screen…</button>
+        </div>
+        <div id="timerScreenStatus" class="rail-note"></div>
       </section>
 
       <section class="rail-block">
@@ -176,6 +181,53 @@
       <h3>Readiness <button id="showModeRefresh" class="btn small ghost">Check again</button></h3>
       <ul id="showModeItems" class="pf-list"></ul>
       <div id="focusHelp" class="focus-help" hidden></div>
+    </div>
+  </div>
+
+  <div id="timerScreenModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="editor-head">
+        <h2>Timer on screen</h2>
+        <button id="tsClose" class="btn ghost small">✕</button>
+      </div>
+      <label class="row wide"><span>Screen</span><select id="tsDisplay"></select></label>
+      <label class="row wide"><span>Between presentations</span>
+        <select id="tsIdle">
+          <option value="off">Show nothing</option>
+          <option value="timer">Full-screen timer</option>
+          <option value="clock">Full-screen current time</option>
+        </select></label>
+      <label class="row wide"><span>Title above it</span><input id="tsTitle" placeholder="For example: Starting in" maxlength="60"></label>
+      <label class="toggle"><input type="checkbox" id="tsClock"><span>Show the current time under the full-screen timer</span></label>
+      <div id="tsNote" class="status-bad" hidden></div>
+
+      <h3>Corner overlay <small>sits on top of the slideshow</small></h3>
+      <label class="toggle"><input type="checkbox" id="tsLivePip"><span>Show it while a presentation is live</span></label>
+      <div class="ts-layout">
+        <div id="tsPreview" class="ts-preview" title="Drag the timer to move it. Drag its corner to resize it.">
+          <div id="tsBox" class="pip">
+            <div id="tsBoxLabel" class="pip-label" hidden></div>
+            <div id="tsBoxTime" class="pip-time">12:34</div>
+            <span id="tsHandle" class="ts-handle" aria-hidden="true"></span>
+          </div>
+        </div>
+        <div class="ts-options">
+          <label class="row"><span>Shows</span>
+            <select id="tsContent"><option value="timer">Timer</option><option value="clock">Current time</option></select></label>
+          <label class="row"><span>Background</span>
+            <select id="tsBg"><option value="solid">Solid</option><option value="glass">See-through</option><option value="none">Text only</option></select></label>
+          <label class="row"><span>Label</span><input id="tsLabel" placeholder="None" maxlength="24"></label>
+          <div class="row"><span>Corner</span>
+            <div class="ts-corners">
+              <button class="btn small" data-corner="tl" title="Top left">↖</button>
+              <button class="btn small" data-corner="tr" title="Top right">↗</button>
+              <button class="btn small" data-corner="bl" title="Bottom left">↙</button>
+              <button class="btn small" data-corner="br" title="Bottom right">↘</button>
+            </div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="tsPreviewOn"><span>Show it on the screen now, to check it</span></label>
+        </div>
+      </div>
     </div>
   </div>
 

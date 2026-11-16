@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('api', {
   timerCmd: invoke('timer:cmd'),
   preflightRun: invoke('preflight:run'),
   thumbsGet: invoke('thumbs:get'),
+  timerScreenForce: invoke('timerscreen:force'),
+  timerScreenPreview: invoke('timerscreen:preview'),
   midiGet: invoke('midi:get'),
   midiSet: invoke('midi:set'),
   presenterGet: invoke('presenter:get'),

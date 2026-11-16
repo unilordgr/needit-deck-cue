@@ -153,6 +153,7 @@ class DeckCueInstance extends InstanceBase {
 			show_name: state.show || '',
 			role: state.role || 'standalone',
 			show_mode: state.showMode ? 'ON' : 'OFF',
+			timer_screen: !state.timerScreen || state.timerScreen.mode === 'off' ? 'off' : state.timerScreen.mode === 'pip' ? 'overlay' : state.timerScreen.content === 'clock' ? 'clock' : 'full',
 			presenter: !state.presenter || !state.presenter.enabled ? 'OFF' : state.presenter.muted ? 'PAUSED' : 'ON',
 			live_number: live ? live.number : '',
 			live_name: live ? live.name : '',
@@ -263,6 +264,23 @@ class DeckCueInstance extends InstanceBase {
 				},
 			},
 			message_clear: { name: 'Stage message: clear', options: [], callback: () => this.post('/api/message/clear') },
+			timer_screen: {
+				name: 'Timer: full screen on the output',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'mode',
+						label: 'Mode',
+						default: 'toggle',
+						choices: [
+							{ id: 'toggle', label: 'Toggle' },
+							{ id: 'on', label: 'Show' },
+							{ id: 'off', label: 'Hide' },
+						],
+					},
+				],
+				callback: (a) => this.post(a.options.mode === 'toggle' ? '/api/timerscreen' : `/api/timerscreen?state=${a.options.mode}`),
+			},
 			presenter_mute: {
 				name: 'Presenter remote: pause / allow',
 				options: [
@@ -374,6 +392,13 @@ class DeckCueInstance extends InstanceBase {
 				options: [],
 				callback: () => !this.timerIdle() && this.timerRemaining() < 0,
 			},
+			timer_screen_full: {
+				type: 'boolean',
+				name: 'Timer or clock is full screen on the output',
+				defaultStyle: { bgcolor: YELLOW, color: BLACK },
+				options: [],
+				callback: () => !!(this.state && this.state.timerScreen && this.state.timerScreen.mode === 'full'),
+			},
 			presenter_paused: {
 				type: 'boolean',
 				name: 'Presenter remote is paused',
@@ -474,6 +499,7 @@ class DeckCueInstance extends InstanceBase {
 			{ variableId: 'show_name', name: 'Show name' },
 			{ variableId: 'role', name: 'Role of this Deck Cue (standalone/main/backup)' },
 			{ variableId: 'show_mode', name: 'Show-machine mode (ON/OFF)' },
+			{ variableId: 'timer_screen', name: 'Timer on the output (off/overlay/full/clock)' },
 			{ variableId: 'presenter', name: 'Presenter remote (ON/PAUSED/OFF)' },
 			{ variableId: 'live_number', name: 'Live cue number' },
 			{ variableId: 'live_name', name: 'Live cue name' },
@@ -537,6 +563,9 @@ class DeckCueInstance extends InstanceBase {
 			{ feedbackId: 'timer_running', options: {}, style: { bgcolor: combineRgb(10, 60, 30), color: WHITE } },
 			{ feedbackId: 'timer_warning', options: { seconds: 120 }, style: { bgcolor: YELLOW, color: BLACK } },
 			{ feedbackId: 'timer_overtime', options: {}, style: { bgcolor: RED, color: WHITE } },
+		])
+		presets.timer_screen = button('Timer', 'Timer full screen', 'TIMER\\nFULL\\nSCREEN', 'timer_screen', { mode: 'toggle' }, { size: '14' }, [
+			{ feedbackId: 'timer_screen_full', options: {}, style: { bgcolor: YELLOW, color: BLACK } },
 		])
 		presets.timer_reset = button('Timer', 'Timer reset', 'TIMER\\nRESET', 'timer_reset', {}, {})
 		for (const min of [5, 10, 15, 20, 30]) {

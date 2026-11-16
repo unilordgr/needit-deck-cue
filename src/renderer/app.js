@@ -262,6 +262,145 @@ function setupMidi() {
   });
 }
 
+// ---------- timer on the output screen ----------
+const tsCfg = () => show.settings.timerScreen;
+let tsSaveTimer = null;
+
+// Save without rebuilding the whole window (used while dragging the overlay).
+function tsSaveSoon() {
+  clearTimeout(tsSaveTimer);
+  tsSaveTimer = setTimeout(() => api.updateShow(show), 60);
+}
+
+function renderTimerScreenStatus() {
+  const rt = runtime.timerScreen || {};
+  const btn = $('timerFullBtn');
+  btn.classList.toggle('on', !!rt.forced);
+  btn.textContent = rt.forced ? 'Exit full screen' : 'Full screen';
+  const where = rt.display ? rt.display.label : 'the output';
+  const el = $('timerScreenStatus');
+  el.className = `rail-note${rt.note ? ' warn' : ''}`;
+  el.textContent = rt.note
+    ? rt.note
+    : rt.mode === 'full' ? `${rt.content === 'clock' ? 'Current time' : 'Timer'} is full screen on ${where}.`
+      : rt.mode === 'pip' ? `Overlay is showing on ${where}.` : '';
+}
+
+// Draws the overlay box in the preview with the same rules the output uses.
+function renderTsPreview() {
+  const p = tsCfg().pip;
+  const prev = $('tsPreview');
+  const box = $('tsBox');
+  const rt = runtime.timerScreen || {};
+  if (rt.display) prev.style.aspectRatio = `${rt.display.width} / ${rt.display.height}`;
+  // A slide behind it for context: the live cue's first slide, else the next cue's.
+  const cue = cueById(runtime.liveCueId) || cueById(runtime.armedCueId) || show.cues[0];
+  prev.style.backgroundImage = cue && thumbs[cue.id] ? `url('${thumbs[cue.id]}')` : '';
+  box.dataset.bg = p.bg;
+  box.style.fontSize = `${p.h * prev.clientHeight}px`;
+  $('tsBoxLabel').textContent = p.label || '';
+  $('tsBoxLabel').hidden = !p.label;
+  $('tsBoxTime').textContent = p.content === 'clock' ? new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?[AP]M$/i, '') : '12:34';
+  const w = box.offsetWidth / prev.clientWidth;
+  const h = box.offsetHeight / prev.clientHeight;
+  box.style.left = `${Math.min(1 - w / 2, Math.max(w / 2, p.x)) * 100}%`;
+  box.style.top = `${Math.min(1 - h / 2, Math.max(h / 2, p.y)) * 100}%`;
+}
+
+function renderTimerScreenModal() {
+  const c = tsCfg();
+  const rt = runtime.timerScreen || {};
+  const current = c.display && c.display !== 'output' ? c.display : null;
+  $('tsDisplay').innerHTML = `<option value="output"${!current ? ' selected' : ''}>Same as the output</option>`
+    + displays.map((d, i) => `<option value="${d.id}"${current && current.id === d.id ? ' selected' : ''}>${esc(displayName(d, i))}</option>`).join('')
+    + (current && !displays.some((d) => d.id === current.id) ? `<option value="missing" selected>⚠ ${esc(current.label)} (not connected)</option>` : '');
+  $('tsIdle').value = c.idle;
+  if (document.activeElement !== $('tsTitle')) $('tsTitle').value = c.title || '';
+  $('tsClock').checked = !!c.showClock;
+  $('tsClock').disabled = c.idle === 'clock';
+  $('tsLivePip').checked = !!c.livePip;
+  $('tsContent').value = c.pip.content;
+  $('tsBg').value = c.pip.bg;
+  if (document.activeElement !== $('tsLabel')) $('tsLabel').value = c.pip.label || '';
+  $('tsPreviewOn').checked = !!rt.preview;
+  $('tsNote').hidden = !rt.note;
+  $('tsNote').textContent = rt.note || '';
+  renderTsPreview();
+}
+
+function setupTimerScreen() {
+  $('timerFullBtn').onclick = () => api.timerScreenForce();
+  $('timerScreenBtn').onclick = () => { $('timerScreenModal').hidden = false; renderTimerScreenModal(); };
+  const closeModal = () => { $('timerScreenModal').hidden = true; api.timerScreenPreview(false); };
+  $('tsClose').onclick = closeModal;
+  $('timerScreenModal').onclick = (e) => { if (e.target === $('timerScreenModal')) closeModal(); };
+
+  const save = async () => { await api.updateShow(show); renderTimerScreenModal(); };
+  $('tsDisplay').onchange = (e) => {
+    const d = displays.find((x) => String(x.id) === e.target.value);
+    if (e.target.value !== 'missing') tsCfg().display = d ? outputRef(d) : 'output';
+    save();
+  };
+  $('tsIdle').onchange = (e) => { tsCfg().idle = e.target.value; save(); };
+  $('tsTitle').oninput = (e) => { tsCfg().title = e.target.value; tsSaveSoon(); };
+  $('tsClock').onchange = (e) => { tsCfg().showClock = e.target.checked; save(); };
+  $('tsLivePip').onchange = (e) => { tsCfg().livePip = e.target.checked; save(); };
+  $('tsContent').onchange = (e) => { tsCfg().pip.content = e.target.value; save(); };
+  $('tsBg').onchange = (e) => { tsCfg().pip.bg = e.target.value; save(); };
+  $('tsLabel').oninput = (e) => { tsCfg().pip.label = e.target.value; renderTsPreview(); tsSaveSoon(); };
+  $('tsPreviewOn').onchange = (e) => api.timerScreenPreview(e.target.checked);
+  document.querySelector('.ts-corners').onclick = (e) => {
+    const corner = e.target.dataset.corner;
+    if (!corner) return;
+    // Centre the box half its own size plus a small gap away from that corner.
+    const p = tsCfg().pip;
+    const margin = 0.03;
+    const prev = $('tsPreview');
+    const box = $('tsBox');
+    const w = box.offsetWidth / prev.clientWidth / 2;
+    const h = box.offsetHeight / prev.clientHeight / 2;
+    p.x = corner.endsWith('l') ? margin + w : 1 - margin - w;
+    p.y = corner.startsWith('t') ? margin * 1.6 + h : 1 - margin * 1.6 - h;
+    save();
+  };
+
+  // Drag to move, drag the handle to resize.
+  const prev = $('tsPreview');
+  let drag = null;
+  prev.addEventListener('pointerdown', (e) => {
+    const box = $('tsBox');
+    if (!box.contains(e.target)) return;
+    const r = prev.getBoundingClientRect();
+    const p = tsCfg().pip;
+    const b = box.getBoundingClientRect();
+    drag = e.target.id === 'tsHandle'
+      ? { kind: 'size', cy: b.top + b.height / 2 }
+      : { kind: 'move', dx: e.clientX - (b.left + b.width / 2), dy: e.clientY - (b.top + b.height / 2) };
+    drag.rect = r;
+    p.x = (b.left + b.width / 2 - r.left) / r.width; // start from where it is drawn (after clamping)
+    p.y = (b.top + b.height / 2 - r.top) / r.height;
+    prev.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  prev.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const p = tsCfg().pip;
+    const r = drag.rect;
+    if (drag.kind === 'move') {
+      p.x = Math.min(1, Math.max(0, (e.clientX - drag.dx - r.left) / r.width));
+      p.y = Math.min(1, Math.max(0, (e.clientY - drag.dy - r.top) / r.height));
+    } else {
+      p.h = Math.min(0.5, Math.max(0.05, (2 * (e.clientY - drag.cy)) / r.height));
+    }
+    renderTsPreview();
+    tsSaveSoon();
+  });
+  const end = () => { if (drag) { drag = null; api.updateShow(show); } };
+  prev.addEventListener('pointerup', end);
+  prev.addEventListener('pointercancel', end);
+  addEventListener('resize', () => { if (!$('timerScreenModal').hidden) renderTsPreview(); });
+}
+
 // ---------- presenter remote ----------
 let presenter = null;
 
@@ -999,6 +1138,7 @@ function setupKeyboard() {
     if (!$('settings').hidden) { if (e.key === 'Escape') $('settings').hidden = true; return; }
     if (!$('preflightModal').hidden) { if (e.key === 'Escape') $('preflightModal').hidden = true; return; }
     if (!$('showModeModal').hidden) { if (e.key === 'Escape') $('showModeModal').hidden = true; return; }
+    if (!$('timerScreenModal').hidden) { if (e.key === 'Escape') $('tsClose').click(); return; }
     const accel = accelFromEvent(e);
     if (!accel) return;
     // Cue shortcuts (global ones are handled by the main process, which also fires while we're focused).
@@ -1042,12 +1182,14 @@ async function init() {
   setupKeyboard();
   setupStageBar();
   setupShowMode();
+  setupTimerScreen();
   setupMidi();
   midi = await api.midiGet();
   startMidi();
   await loadPresenter();
   render();
   renderShowModeIndicators();
+  renderTimerScreenStatus();
 
   api.on('state', (s) => {
     runtime = s;
@@ -1056,6 +1198,8 @@ async function init() {
     renderPreflightButton();
     renderShowModeIndicators();
     renderPresenterChip();
+    renderTimerScreenStatus();
+    if (!$('timerScreenModal').hidden) renderTimerScreenModal();
     if (selectedId) renderEditor();
     if (!$('preflightModal').hidden) renderPreflightReport();
     tickTimer();

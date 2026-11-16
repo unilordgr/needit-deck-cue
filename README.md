@@ -30,6 +30,31 @@ Deck Cue detects which apps are installed (⚙︎ Settings › System lists them
 - WPS can't close a deck while a slideshow is running. With *Close the previous presentation* on, Deck Cue closes the old deck *before* starting the next one, so the editor shows for a moment during the change. Turn on *black backdrop* in Settings to hide it on the output.
 - Don't leave a dialog open in WPS (Save, Recover, etc.). Deck Cue can't click Play while one is showing.
 
+## Timer on the output screen
+
+The speaker timer can also be shown on the output itself, in three ways. Set it up with **On screen…** in the timer panel.
+
+- **Between presentations**: while nothing is live, the output shows a full-screen **timer** or the **current time**, with an optional title above it ("Starting in", "Back at 15:30"). It stays up while the next cue loads, then gives way to the slides. Stop brings it back.
+- **Corner overlay**: while a presentation is live, a small timer (or the current time) sits on top of the slideshow. It works over PowerPoint, WPS, Keynote and the PDF player. The overlay is see-through to clicks and never takes keyboard focus, so clickers and the slideshow are unaffected.
+- **Full screen button**: puts the timer full screen over whatever is playing, right now. Use it for a Q&A countdown, or as a countdown clock with no presentations at all.
+
+**Overlay layout.** In the editor, drag the timer on the preview to move it, and drag its corner dot to resize it. You can also choose:
+- what it shows (timer or current time)
+- the background (solid, see-through or text only)
+- an optional label ("Time left")
+- one of the four corners, with one click
+
+*Show it on the screen now* displays the overlay while you set it up.
+
+**Which screen.** It follows the show's output by default (or the first external screen); you can pick another one. The automatic full screen never covers the screen Deck Cue itself is on, so it needs a second screen. The Full screen button always works; on a single screen, click the timer to hide it.
+
+**Behaviour**
+- The timer turns amber for the last two minutes and red with "+MM:SS" when over time.
+- Blackout covers the timer too.
+- Remote: `POST /api/timerscreen[?state=on|off]`, OSC `/deckcue/timerscreen [0|1]`, or the Companion *Timer: full screen on the output* action. A backup machine follows the Full screen button.
+
+Tested on macOS over a fullscreen WPS slideshow and the PDF player. Not yet tried over PowerPoint or Keynote, or on Windows.
+
 ## Versions of files
 
 Speakers change their decks until the last minute. Deck Cue watches every cue's file. This works on network shares and USB drives too.
@@ -204,6 +229,7 @@ To install it:
 | `POST /api/timer/start`, `/pause`, `/reset`, `/set?seconds=N`, `/add?seconds=N` | Speaker timer (negative `add` removes time) |
 | `POST /api/message?text=…&flash=1`, `/api/message/clear` | Stage message |
 | `POST /api/showmode[?state=on\|off]` | Show-machine mode (toggle without state) |
+| `POST /api/timerscreen[?state=on\|off]` | Full-screen timer on the output (toggle without state) |
 | `POST /api/presenter/mute[?state=on\|off]` | Pause / allow the presenter remote |
 | `POST /api/presenter/next`, `/prev`, `/check` + header `X-Presenter-Pin` | Presenter remote (PIN) |
 | `GET /api/cue/<ref>/thumb` | First-slide thumbnail |

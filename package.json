@@ -1,7 +1,7 @@
 {
   "name": "needit-deck-cue",
   "productName": "needit Deck Cue",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Cue launcher for PowerPoint, WPS Office, Keynote and PDF presentations, for AV operators",
   "main": "src/main.js",
   "scripts": {

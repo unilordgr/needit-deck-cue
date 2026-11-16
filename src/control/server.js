@@ -9,6 +9,7 @@
 //        POST /api/timer/start | pause | reset, /api/timer/set?seconds=N, /api/timer/add?seconds=N
 //        POST /api/message?text=...&flash=1, /api/message/clear
 //        POST /api/showmode[?state=on|off]     show-machine mode (toggle without state)
+//        POST /api/timerscreen[?state=on|off]  full-screen timer on the output (toggle without state)
 //        GET  /api/cue/<ref>/file             the cue's PDF (for stage display previews)
 //        GET  /api/cue/<ref>/thumb            first-slide thumbnail image
 //        GET  /stage                           stage display / confidence monitor page
@@ -83,6 +84,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
       case 'timer': return actions.timer(arg.cmd, arg.seconds);
       case 'message': return actions.stageMessage(arg.text, arg.flash);
       case 'showmode': return actions.showMode(arg);
+      case 'timerscreen': return actions.timerScreen(arg);
       case 'presenter-mute': return actions.presenterMute(arg);
       default: throw Object.assign(new Error(`Unknown action ${action}`), { code: 404 });
     }
@@ -117,6 +119,10 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     if (a === 'presenter' && b === 'mute' && !c) {
       const st = query.get('state');
       return { action: 'presenter-mute', arg: st === 'on' ? true : st === 'off' ? false : undefined };
+    }
+    if (a === 'timerscreen' && !b) {
+      const st = query.get('state');
+      return { action: 'timerscreen', arg: st === 'on' ? true : st === 'off' ? false : undefined };
     }
     if (a === 'showmode' && !b) {
       const st = query.get('state');
@@ -195,6 +201,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
         else if (parts[0] === 'message' && parts.length === 1) run('message', { text: args.length ? String(args[0]) : '', flash: args.length > 1 && Boolean(args[1]) });
         else if (parts[0] === 'message' && parts[1] === 'clear' && parts.length === 2) run('message', { text: '', flash: false });
         else if (parts[0] === 'showmode' && parts.length === 1) run('showmode', args.length ? Boolean(args[0]) : undefined);
+        else if (parts[0] === 'timerscreen' && parts.length === 1) run('timerscreen', args.length ? Boolean(args[0]) : undefined);
       } catch { /* ignore bad OSC input */ }
     }
   }
