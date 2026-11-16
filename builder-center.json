@@ -44,10 +44,10 @@
   "nsis": {
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
-    "artifactName": "needit-Command-Center-Setup-${version}.${ext}",
+    "artifactName": "needit-Command-Center-Setup.${ext}",
     "shortcutName": "needit Command Center"
   },
   "portable": {
-    "artifactName": "needit-Command-Center-Portable-${version}.${ext}"
+    "artifactName": "needit-Command-Center-Portable.${ext}"
   }
 }

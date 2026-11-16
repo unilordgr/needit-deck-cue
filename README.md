@@ -30,15 +30,37 @@ There are two apps:
 
 ## Download
 
-Get the latest builds from the **[Releases page](https://github.com/unilordgr/needit-deck-cue/releases/latest)**.
+[![Latest version](https://img.shields.io/github/v/release/unilordgr/needit-deck-cue?style=flat-square&color=brightgreen&label=latest%20version)](https://github.com/unilordgr/needit-deck-cue/releases/latest)
 
-| | needit Deck Cue | needit Command Center |
+### needit Deck Cue
+
+Runs on every computer that shows presentations.
+
+| Platform | | |
 |---|---|---|
-| **Windows 10/11 (x64), installer** | `needit-Deck-Cue-Setup-<version>.exe` | `needit-Command-Center-Setup-<version>.exe` |
-| **Windows, portable** (no install, runs from a USB stick) | `needit-Deck-Cue-Portable-<version>.exe` | `needit-Command-Center-Portable-<version>.exe` |
-| **macOS, Apple Silicon** (M1 or later) | `needit-Deck-Cue-mac-arm64.zip` | `needit-Command-Center-mac-arm64.zip` |
+| **Windows** 10/11 x64 | Installer, with a Start menu shortcut | [![Download the needit Deck Cue installer for Windows](https://img.shields.io/badge/Download-Installer%20.exe-0078d4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/unilordgr/needit-deck-cue/releases/latest/download/needit-Deck-Cue-Setup.exe) |
+| **Windows** 10/11 x64 | Portable: nothing to install, runs from a USB stick | [![Download the portable needit Deck Cue for Windows](https://img.shields.io/badge/Download-Portable%20.exe-0078d4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/unilordgr/needit-deck-cue/releases/latest/download/needit-Deck-Cue-Portable.exe) |
+| **macOS** Apple Silicon | M1 or later | [![Download needit Deck Cue for macOS](https://img.shields.io/badge/Download-arm64%20.zip-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/unilordgr/needit-deck-cue/releases/latest/download/needit-Deck-Cue-mac-arm64.zip) |
 
-The Bitfocus Companion module is `needit-deckcue-<version>.tgz` on the same page.
+### needit Command Center
+
+Runs on the one computer that controls the others.
+
+| Platform | | |
+|---|---|---|
+| **Windows** 10/11 x64 | Installer, with a Start menu shortcut | [![Download the needit Command Center installer for Windows](https://img.shields.io/badge/Download-Installer%20.exe-0078d4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/unilordgr/needit-deck-cue/releases/latest/download/needit-Command-Center-Setup.exe) |
+| **Windows** 10/11 x64 | Portable: nothing to install, runs from a USB stick | [![Download the portable needit Command Center for Windows](https://img.shields.io/badge/Download-Portable%20.exe-0078d4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/unilordgr/needit-deck-cue/releases/latest/download/needit-Command-Center-Portable.exe) |
+| **macOS** Apple Silicon | M1 or later | [![Download needit Command Center for macOS](https://img.shields.io/badge/Download-arm64%20.zip-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/unilordgr/needit-deck-cue/releases/latest/download/needit-Command-Center-mac-arm64.zip) |
+
+### Bitfocus Companion module
+
+For Stream Deck and other Companion surfaces.
+
+| | | |
+|---|---|---|
+| **Companion** 4.0 or newer | Import it under *Modules › Import module package* | [![Download the Companion module](https://img.shields.io/badge/Download-.tgz-6f42c1?style=for-the-badge)](https://github.com/unilordgr/needit-deck-cue/releases/latest/download/needit-deckcue-companion.tgz) |
+
+> All releases: [github.com/unilordgr/needit-deck-cue/releases](https://github.com/unilordgr/needit-deck-cue/releases). More about the apps: [needitcreative.com/software](https://needitcreative.com/software).
 
 ### Opening the apps the first time
 
@@ -344,8 +366,8 @@ The module in `companion-module/` (Companion 4.0 or newer) provides:
 - **Presets:** a Transport page, one button per cue that turns yellow when next and red when live, a Timer page (live countdown, 5–30 min, ±1 min) and a Stage messages page (WRAP UP, 5 MIN, …).
 
 To install it:
-1. Build the package (`cd companion-module && npm install && npm run package`), or download it from the CI run.
-2. In Companion, import `needit-deckcue-<version>.tgz` under *Modules › Import module package*.
+1. Download `needit-deckcue-companion.tgz` with the [download button](#download) above, or build it yourself (`cd companion-module && npm install && npm run package`).
+2. In Companion, import it under *Modules › Import module package*.
 3. Add a **needit Deck Cue** connection with the host and port shown in Deck Cue's settings.
 
 ### HTTP + WebSocket API (default port 9640)
@@ -391,8 +413,8 @@ The current slide is only known for PDF cues so far. PowerPoint, WPS and Keynote
 Deck Cue also runs on Windows 10/11 (x64). There it controls **PowerPoint** and **WPS Office** through COM automation, using the built-in Windows PowerShell; no extra permissions are needed. PDFs use the same built-in player as on the Mac. Keynote doesn't exist on Windows.
 
 There are two builds:
-- **Installer**: `needit-Deck-Cue-Setup-<version>.exe`. Installs normally, with a Start menu shortcut.
-- **Portable**: `needit-Deck-Cue-Portable-<version>.exe`. Nothing to install, so it can run from a USB stick. Its settings and autosave are kept in a `needit Deck Cue Data` folder next to the `.exe`.
+- **Installer**: `needit-Deck-Cue-Setup.exe`. Installs normally, with a Start menu shortcut.
+- **Portable**: `needit-Deck-Cue-Portable.exe`. Nothing to install, so it can run from a USB stick. Its settings and autosave are kept in a `needit Deck Cue Data` folder next to the `.exe`.
 
 **Choosing the output on Windows**
 - *PowerPoint*: Deck Cue sets PowerPoint's slide-show monitor (`DisplayMonitor` in `HKCU\Software\Microsoft\Office\16.0\PowerPoint\Options`) to the cue's output before starting the show.

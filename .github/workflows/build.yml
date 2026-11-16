@@ -100,6 +100,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
+          # Fixed file names, so the download buttons in the README always point at the latest release.
+          mv artifacts/needit-deckcue-*.tgz artifacts/needit-deckcue-companion.tgz
           ls -la artifacts
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "needit Deck Cue and Command Center $TAG" --notes "Downloads for Windows and macOS (Apple Silicon), plus the Bitfocus Companion module. How to open the apps the first time: https://github.com/$GITHUB_REPOSITORY#opening-the-apps-the-first-time - Code signing policy: https://github.com/$GITHUB_REPOSITORY#code-signing-policy"
           gh release upload "$TAG" artifacts/* --repo "$GITHUB_REPOSITORY" --clobber

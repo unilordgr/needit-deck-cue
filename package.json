@@ -1,7 +1,7 @@
 {
   "name": "needit-deck-cue",
   "productName": "needit Deck Cue",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Cue launcher for PowerPoint, WPS Office, Keynote and PDF presentations, with a Command Center app that runs many of them from one computer",
   "author": {
     "name": "needit Creative",
@@ -63,11 +63,11 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "needit-Deck-Cue-Setup-${version}.${ext}",
+      "artifactName": "needit-Deck-Cue-Setup.${ext}",
       "shortcutName": "needit Deck Cue"
     },
     "portable": {
-      "artifactName": "needit-Deck-Cue-Portable-${version}.${ext}"
+      "artifactName": "needit-Deck-Cue-Portable.${ext}"
     }
   },
   "devDependencies": {
