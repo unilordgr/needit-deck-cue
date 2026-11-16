@@ -349,6 +349,11 @@ function setupCenter() {
     document.querySelectorAll('.set-body [data-pane]').forEach((sec) => { sec.hidden = sec.dataset.pane !== pane; });
     document.querySelector('.set-body').scrollTop = 0;
   });
+  // About: who made it, and the three places to go from here.
+  api.about().then((a) => { $('aboutName').textContent = `${a.name} ${a.version}`; });
+  document.querySelector('.about-actions').addEventListener('click', (e) => {
+    if (e.target.dataset.about) api.aboutOpen(e.target.dataset.about);
+  });
 }
 
 // ---------- timer on the output screen ----------
@@ -790,7 +795,7 @@ function renderSettings() {
   $('envInfo').innerHTML = `
     ${(env.apps || []).map((a) => `<div>${esc(a.name)}: ${a.installed ? '<span class="ok">installed</span>' : '<span class="bad">not found</span>'}</div>`).join('')}
     ${IS_MAC ? `<div>Accessibility (needed for WPS Office, and to send slideshows to a chosen output): ${env.accessibility ? '<span class="ok">allowed</span>' : '<span class="bad">not allowed</span> <button class="btn small" id="grantAx">Open settings</button>'}</div>
-    <div style="color:var(--muted);font-size:12px">The first time a cue fires, macOS asks to let Deck Cue control your presentation app. Click OK.</div>` : ''}`;
+    <div class="env-note">The first time a cue fires, macOS asks to let Deck Cue control your presentation app. Click OK.</div>` : ''}`;
   const g = $('grantAx');
   if (g) g.onclick = () => api.requestAccessibility();
 }

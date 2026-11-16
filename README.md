@@ -1,12 +1,79 @@
-# needit Deck Cue
+<p align="center">
+  <img src="build/icon.png" width="112" alt="needit Deck Cue icon">
+  &nbsp;&nbsp;
+  <img src="build/icon-center.png" width="112" alt="needit Command Center icon">
+</p>
 
-<img src="build/icon.png" width="128" alt="needit Deck Cue icon">
+# needit Deck Cue and needit Command Center
 
-A cue launcher for presentations on macOS and Windows, built for AV operators by **needit Creative**. It works with **Microsoft PowerPoint**, **WPS Office**, **Keynote** and **PDF** files (PDFs use a player built into the app).
+Free presentation cueing for live events, for macOS and Windows. Created by **[needit Creative](https://needitcreative.com)** for AV operators.
 
 There are two apps:
-- **needit Deck Cue** runs on every computer that shows presentations.
-- **needit Command Center** runs on one computer and controls all of them over the network.
+- **needit Deck Cue** runs on every computer that shows presentations. Each presentation is a big cue button: press it and the deck opens full screen on the right output. It works with **Microsoft PowerPoint**, **WPS Office**, **Keynote** and **PDF** files (PDFs play in a player built into the app).
+- **needit Command Center** runs on one computer and controls every Deck Cue on the network: send the files, set the order, press play, run the timers. Main and backup can be linked so they always play together.
+
+![needit Deck Cue](docs/deck-cue.png)
+
+![needit Command Center](docs/command-center.png)
+
+## What it does
+
+- **Cue buttons:** drop presentations in, press a cue or **GO**, and the deck opens and starts its slideshow. Keyboard shortcuts per cue, also while the slideshow is in front.
+- **No file juggling:** files dropped from a USB stick are copied into a show folder on the computer. Dropping a newer file on a cue replaces the old one, so only the latest version is there.
+- **Command Center:** one seat runs many computers. Files are sent over the network; nobody walks around with sticks.
+- **Link:** main and backup start the same cue at the same moment.
+- **Speaker timer:** saved timers, a timer per presentation, +1 / −1 minute while it runs. Show it full screen, as a clock between presentations, or as a small overlay on top of the slides.
+- **Stage display and presenter remote:** a confidence monitor page for any browser, and a phone remote for the presenter (with a PIN).
+- **Preflight:** warns about missing fonts, wrong slide shape for the output and missing files before the show.
+- **Show-machine mode:** keeps notifications, sleep and screen savers out of the way.
+- **Remote control:** Bitfocus Companion module (Stream Deck), HTTP and WebSocket API, OSC and MIDI.
+
+## Download
+
+Get the latest builds from the **[Releases page](https://github.com/unilordgr/needit-deck-cue/releases/latest)**.
+
+| | needit Deck Cue | needit Command Center |
+|---|---|---|
+| **Windows 10/11 (x64), installer** | `needit-Deck-Cue-Setup-<version>.exe` | `needit-Command-Center-Setup-<version>.exe` |
+| **Windows, portable** (no install, runs from a USB stick) | `needit-Deck-Cue-Portable-<version>.exe` | `needit-Command-Center-Portable-<version>.exe` |
+| **macOS, Apple Silicon** (M1 or later) | `needit-Deck-Cue-mac-arm64.zip` | `needit-Command-Center-mac-arm64.zip` |
+
+The Bitfocus Companion module is `needit-deckcue-<version>.tgz` on the same page.
+
+### Opening the apps the first time
+
+The apps are free and are not yet signed with an Apple or Microsoft developer certificate, so both systems ask before they open them.
+
+- **macOS:** unzip, move the app to *Applications* and open it. macOS says it can't check the app. Open **System Settings › Privacy & Security**, scroll down and press **Open Anyway**. You only do this once.
+- **Windows:** SmartScreen shows *Windows protected your PC*. Press **More info**, then **Run anyway**.
+
+## Quick start
+
+**One computer**
+1. Open **needit Deck Cue**.
+2. Drop your presentations on the window. Each one becomes a cue.
+3. Click a cue, or press **GO** (Space) for the next one. **Esc** stops.
+
+On a Mac, the first cue makes macOS ask to let Deck Cue control your presentation app: press **OK**. WPS Office also needs *Accessibility* permission; ⚙ Settings › This computer has a button for it.
+
+**Several computers**
+1. Put all the computers on the same network.
+2. On each show computer open Deck Cue, go to **Settings › Command Center** and switch on **Connect to Command Center**.
+3. Open **needit Command Center** on your own computer. The show computers appear by themselves. Drop presentations on them and press play.
+
+## Status: early release
+
+This is version 0.x: new, and not every combination has been run yet. **Rehearse on the real setup before a show.**
+
+| | State |
+|---|---|
+| macOS with **WPS Office** and **PDF** | Tested end to end on one display |
+| macOS with **PowerPoint** and **Keynote** | Written from Apple's and Microsoft's scripting documentation; not yet run against the real apps |
+| **Windows** (PowerPoint, WPS Office, PDF) | The builds are made and checked automatically; not yet tested on a real PC with PowerPoint or WPS |
+| **Command Center** | Tested with three copies of Deck Cue on one Mac; not yet tested between separate computers |
+| Sending a slideshow to a chosen second display | Not yet tested with a real second display |
+
+Found a problem? Please [open an issue](https://github.com/unilordgr/needit-deck-cue/issues) and say which system and presentation app you use.
 
 ## Command Center
 
@@ -47,7 +114,7 @@ Cues are matched by their position in the list, and you get a warning if the lis
 - Set the same **network key** on the show computers and in the Command Center's Settings to keep other people on the network out.
 - The show computers keep their own list. If the Command Center or the network goes away, they carry on and can be run locally.
 
-**Status:** tested on one Mac with two copies of Deck Cue and the Command Center (discovery, sending files, ordering, playing, timers, Link). Not yet tested between separate computers, or on Windows.
+**Status:** tested on one Mac with several copies of Deck Cue and the Command Center (discovery, sending files, ordering, playing, timers, Link). Not yet tested between separate computers, or on Windows.
 
 ## Presentation apps
 Deck Cue detects which apps are installed (⚙︎ Settings › System lists them).
@@ -334,22 +401,27 @@ There are two builds:
 
 **Status:** the Windows build has **not yet been tested with PowerPoint or WPS** on a real PC. CI checks that every Windows script parses, and runs the ones that work without PowerPoint (detect running apps, list monitors). Rehearse before a show.
 
-## Building
+## Build from source
 
-Windows builds can't be made on an Apple Silicon Mac, so GitHub Actions makes them (`.github/workflows/build.yml`):
-1. Open *Actions › Build › Run workflow* (or push a `v*` tag).
-2. Download `needit-Deck-Cue-windows` (installer + portable) or `needit-Deck-Cue-mac` from the finished run. The Command Center is in `needit-Command-Center-windows` and `needit-Command-Center-mac`.
-
-Both apps come from the same code. The Command Center build uses `builder-center.json`, which marks the package as the Command Center; `src/index.js` then starts `src/center/` instead of the player. In development: `npm run start:center`.
-
-## Run
+You need [Node.js](https://nodejs.org) 22 or newer.
 
 ```bash
 npm install
 npm start
 ```
 
-To build a `.app` for your show machine: `npm run dist` (output in `dist/`).
+`npm start` opens Deck Cue. `npm run start:center` opens the Command Center.
+
+To make the apps:
+
+| | Deck Cue | Command Center |
+|---|---|---|
+| macOS | `npm run dist:mac` (output in `dist/`) | `npm run dist:center:mac` (output in `dist-center/`) |
+| Windows | `npm run dist:win` | `npm run dist:center:win` |
+
+Both apps come from the same code. The Command Center build uses `builder-center.json`, which marks the package as the Command Center; `src/index.js` then starts `src/center/` instead of the player.
+
+Windows builds can't be made on an Apple Silicon Mac, so GitHub Actions makes them (`.github/workflows/build.yml`). *Actions › Build › Run workflow* builds everything and keeps the files on the finished run. Pushing a `v*` tag also publishes them on the Releases page.
 
 ## Using it
 
@@ -401,6 +473,20 @@ A black window covers the output display (the default output, or every non-main 
 
   Sending a show to a *specific* second display with WPS has **not** been tested (no second screen was connected).
 - **PowerPoint / Keynote**: their scripts were written from documentation and have **not been run against the real apps**.
-- Rehearse on the real setup before a show. The scripts are in `src/presenters.js`.
+- Rehearse on the real setup before a show. The scripts are in `src/drivers/` (`mac.js` and `win.js`).
 
 Test decks for a quick check are in `test-decks/`.
+
+## License
+
+**Free to use. Not for sale.**
+
+You may use, copy, change and share needit Deck Cue and needit Command Center free of charge, including at paid shows and events that you produce or operate. You may not sell the software, or licenses for it, or a product whose value comes mainly from it.
+
+The exact terms are in [LICENSE](LICENSE): the MIT License with the Commons Clause condition. The Bitfocus Companion module in `companion-module/` is plain MIT. Third-party components are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+## Credits
+
+Created by **[needit Creative](https://needitcreative.com)**.
+
+Microsoft PowerPoint, Keynote, WPS Office, Stream Deck and Bitfocus Companion are trademarks of their owners. needit Deck Cue controls those apps; it is not affiliated with or endorsed by them.

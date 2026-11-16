@@ -542,6 +542,10 @@ $('settingsBtn').onclick = async () => {
   openModal('settingsModal');
 };
 $('setKey').addEventListener('change', (e) => window.center.setPrefs({ key: e.target.value.trim() }));
+window.center.about().then((a) => { $('aboutName').textContent = `${a.name} ${a.version}`; });
+document.querySelector('.about-actions').addEventListener('click', (e) => {
+  if (e.target.dataset.about) window.center.aboutOpen(e.target.dataset.about);
+});
 $('notice').onclick = () => { $('notice').hidden = true; };
 
 // ---------- boot ----------

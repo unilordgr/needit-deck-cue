@@ -3,6 +3,17 @@
   "productName": "needit Deck Cue",
   "version": "0.6.1",
   "description": "Cue launcher for PowerPoint, WPS Office, Keynote and PDF presentations, with a Command Center app that runs many of them from one computer",
+  "author": {
+    "name": "needit Creative",
+    "url": "https://needitcreative.com"
+  },
+  "homepage": "https://needitcreative.com",
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/unilordgr/needit-deck-cue.git"
+  },
+  "bugs": "https://github.com/unilordgr/needit-deck-cue/issues",
   "main": "src/index.js",
   "scripts": {
     "start": "electron .",
@@ -22,14 +33,15 @@
       },
       "icon": "build/icon.png"
     },
-    "copyright": "Copyright © 2026 needit Creative",
+    "copyright": "Copyright © 2026 needit Creative · needitcreative.com",
     "files": [
       "src/**/*",
       "package.json",
       "!node_modules/@napi-rs/**",
       "!node_modules/pdfjs-dist/{legacy,web,types,image_decoders,wasm}/**",
       "!node_modules/pdfjs-dist/build/{pdf.mjs,pdf.worker.mjs,pdf.sandbox*}",
-      "!node_modules/pdfjs-dist/**/*.map"
+      "!node_modules/pdfjs-dist/**/*.map",
+      "LICENSE"
     ],
     "win": {
       "icon": "build/icon.png",
@@ -62,7 +74,6 @@
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8"
   },
-  "author": "needit Creative",
   "dependencies": {
     "pdfjs-dist": "^4.10.38",
     "qrcode": "^1.5.4",

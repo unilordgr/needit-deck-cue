@@ -183,3 +183,10 @@ body.mac .topbar { padding-left: 88px; }
 .field { display: grid; gap: 6px; }
 .field span { font-weight: 600; }
 .error { color: #ffa39d; min-height: 1.4em; }
+
+/* ---------- About (in Settings) ---------- */
+.about { display: flex; align-items: center; gap: 18px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.about img { flex: none; }
+.about-text { display: flex; flex-direction: column; gap: 4px; font-size: 18px; }
+.about-name { font: 800 26px/1.1 var(--num, var(--ui)); }
+.about-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }

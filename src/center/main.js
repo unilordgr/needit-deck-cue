@@ -327,6 +327,7 @@ function createWindow() {
 app.whenReady().then(() => {
   loadPrefs();
   setupIpc();
+  require('../about').setupAbout(APP_NAME);
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(IS_MAC ? [{ role: 'appMenu' }] : []),
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },

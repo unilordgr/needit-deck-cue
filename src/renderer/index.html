@@ -157,6 +157,7 @@
         <button data-pane="remote">Stream Deck and remote</button>
         <button data-pane="midi">MIDI</button>
         <button data-pane="system">This computer</button>
+        <button data-pane="about">About</button>
         <div class="spacer"></div>
         <button id="settingsClose" class="btn">Done</button>
       </nav>
@@ -214,6 +215,23 @@
           <h3>This computer</h3>
           <p class="lead">What is installed and allowed here.</p>
           <div id="envInfo" class="env"></div>
+        </section>
+
+        <section data-pane="about" hidden>
+          <h3>About</h3>
+          <div class="about">
+            <img src="icon.png" alt="" width="112" height="112">
+            <div class="about-text">
+              <div class="about-name" id="aboutName">needit Deck Cue</div>
+              <div>Created by <b>needit Creative</b></div>
+              <div class="about-free">Free to use. It may not be sold.</div>
+            </div>
+          </div>
+          <div class="about-actions">
+            <button class="btn" data-about="site">needitcreative.com</button>
+            <button class="btn" data-about="repo">Downloads and help</button>
+            <button class="btn" data-about="license">License</button>
+          </div>
         </section>
       </div>
     </div>

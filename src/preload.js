@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('api', {
   resolveFiles: invoke('files:resolve'),
   pickFile: invoke('files:pick'),
   reveal: invoke('files:reveal'),
+  about: invoke('about:get'),
+  aboutOpen: invoke('about:open'),
   importFile: invoke('files:import'),
   retireFile: invoke('files:retire'),
   filesPrefs: invoke('files:prefs'),

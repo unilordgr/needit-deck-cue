@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('center', {
   add: invoke('node:add'),
   remove: invoke('node:remove'),
   pickFiles: invoke('files:pick'),
+  about: invoke('about:get'),
+  aboutOpen: invoke('about:open'),
   prefs: invoke('prefs:get'),
   setPrefs: invoke('prefs:set'),
   pathForFile: (file) => webUtils.getPathForFile(file),

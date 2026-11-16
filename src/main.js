@@ -1318,6 +1318,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  require('./about').setupAbout(APP_NAME);
   // Web MIDI (incl. SysEx for MIDI Show Control) for the main window; nothing else is granted.
   const allowed = new Set(['midi', 'midiSysex']);
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(allowed.has(permission)));

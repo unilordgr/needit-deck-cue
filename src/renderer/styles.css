@@ -448,3 +448,12 @@ body.locked .add-tile { display: none; }
 }
 
 @keyframes pulse { 50% { opacity: .55; } }
+
+/* ---------- About ---------- */
+.about { display: flex; align-items: center; gap: 22px; margin-top: 6px; }
+.about img { flex: none; border-radius: 0; }
+.about-text { display: flex; flex-direction: column; gap: 6px; font-size: 20px; }
+.about-name { font: 800 30px/1.1 var(--num); }
+.about-free { color: var(--muted); }
+.about-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.env-note { color: var(--muted); font-size: 16px; line-height: 1.45; }
