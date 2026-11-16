@@ -262,6 +262,38 @@ function setupMidi() {
   });
 }
 
+// ---------- files: copy into the show folder ----------
+let filesPrefs = null; // { copy, folder }
+
+function renderFilesSettings() {
+  const box = $('filesSettings');
+  if (!filesPrefs) { box.textContent = ''; return; }
+  box.innerHTML = `
+    <label class="toggle"><input type="checkbox" data-files="copy" ${filesPrefs.copy ? 'checked' : ''}><span>Copy presentations into this computer's show folder</span></label>
+    <p class="hint">So a USB stick can be taken out. Dropping a file on a cue replaces the old one, and the folder keeps only the latest version.</p>
+    <div class="row wide"><span>Show folder</span>
+      <div class="file-box"><div class="file-path">${esc(filesPrefs.folder)}</div>
+        <div class="file-actions"><button class="btn small" data-files-act="pick">Change folder</button><button class="btn small ghost" data-files-act="open">Open folder</button></div></div></div>`;
+}
+
+function setupFilesSettings() {
+  $('filesSettings').addEventListener('change', async (e) => {
+    if (e.target.dataset.files === 'copy') { filesPrefs = await api.filesPrefs({ copy: e.target.checked }); renderFilesSettings(); }
+  });
+  $('filesSettings').addEventListener('click', async (e) => {
+    const a = e.target.dataset.filesAct;
+    if (a === 'open') api.centerOpenFolder();
+    if (a === 'pick') {
+      const folder = await api.centerPickFolder();
+      if (!folder) return;
+      centerInfo = await api.centerSet({ folder });
+      filesPrefs = await api.filesPrefs();
+      renderFilesSettings();
+      renderCenterSettings();
+    }
+  });
+}
+
 // ---------- Command Center ----------
 let centerInfo = null; // { config, name, centers, addresses, port }
 
@@ -754,6 +786,7 @@ function renderSettings() {
   renderPresenterSettings();
   renderMidiSettings();
   renderCenterSettings();
+  renderFilesSettings();
   $('envInfo').innerHTML = `
     ${(env.apps || []).map((a) => `<div>${esc(a.name)}: ${a.installed ? '<span class="ok">installed</span>' : '<span class="bad">not found</span>'}</div>`).join('')}
     ${IS_MAC ? `<div>Accessibility (needed for WPS Office, and to send slideshows to a chosen output): ${env.accessibility ? '<span class="ok">allowed</span>' : '<span class="bad">not allowed</span> <button class="btn small" id="grantAx">Open settings</button>'}</div>
@@ -984,26 +1017,58 @@ function newCue(path) {
   return { id: uid(), label: '', file: path ? { path } : null, app: 'auto', autoSlideshow: null, startSlide: 1, output: 'default', shortcut: null, color: COLORS[0], notes: '' };
 }
 
+const cueList = (numbers) => `cue ${numbers.join(', ')}`;
+
+// Copies a dropped file into the show folder (so a USB stick can be removed). Asks before replacing a
+// different file of the same name. Returns what main reported, or null when cancelled or failed.
+async function importPath(p) {
+  let r = await api.importFile(p, false);
+  if (r.conflict) {
+    const used = r.usedBy.length ? ` It is the file of ${cueList(r.usedBy)}.` : '';
+    if (!confirm(`“${r.name}” is already in this show's folder.${used}\n\nReplace it with the one you just added?`)) return null;
+    r = await api.importFile(p, true);
+  }
+  if (r.error) { flash(r.error, 'error'); return null; }
+  return r;
+}
+
 async function addFiles(paths, beforeIndex = show.cues.length) {
   const ok = paths.filter(isSupported);
   const rejected = paths.length - ok.length;
-  if (ok.length) {
-    const cues = ok.map(newCue);
+  const cues = [];
+  const updated = [];
+  const already = [];
+  for (const p of ok) {
+    const r = await importPath(p);
+    if (!r) continue;
+    // A file that a cue already uses was replaced in place: that cue has the new version, no second cue.
+    if (r.usedBy && r.usedBy.length) { (r.same ? already : updated).push(...r.usedBy); continue; }
+    cues.push(newCue(r.path));
+  }
+  if (cues.length) {
     show.cues.splice(beforeIndex, 0, ...cues);
     if (!runtime.armedCueId) api.arm(cues[0].id);
-    await refreshFileStatus();
-    await commit();
   }
+  await refreshFileStatus();
+  if (cues.length) await commit(); else render();
   if (rejected) flash(`${rejected} file(s) skipped. Supported: ${env.supportedExt.join(' ')}`, 'warn');
+  else if (updated.length) flash(`${cueList(updated).replace(/^c/, 'C')} now ${updated.length === 1 ? 'has' : 'have'} the new version.`, 'info');
+  else if (already.length && !cues.length) flash(`That file is already in the show as ${cueList(already)}.`, 'info');
 }
 
-async function replaceFile(id, path) {
-  if (!isSupported(path)) return flash(`Not a presentation: ${baseName(path)}`, 'warn');
+async function replaceFile(id, p) {
+  if (!isSupported(p)) return flash(`Not a presentation: ${baseName(p)}`, 'warn');
   const c = cueById(id);
-  c.file = { path };
+  const n = show.cues.indexOf(c) + 1;
+  if (c.file && !confirm(`Replace the file of cue ${n} “${cueName(c)}” with ${baseName(p)}?\n\nThe old file is moved out of the show folder, so only the latest version stays.`)) return;
+  const r = await api.importFile(p, true); // replacing was just confirmed
+  if (r.error) return flash(r.error, 'error');
+  const old = c.file ? c.file.path : null;
+  c.file = { path: r.path };
   await refreshFileStatus();
   await commit();
-  flash(`Cue ${show.cues.indexOf(c) + 1} now uses ${baseName(path)}`, 'info');
+  if (old) api.retireFile(old, r.path);
+  flash(`Cue ${n} now uses ${baseName(r.path)}`, 'info');
 }
 
 function moveCue(id, beforeId) {
@@ -1023,11 +1088,13 @@ function updateSelected(patch) {
 }
 
 let flashTimer = null;
+let localFlash = null; // a message from this window; it must outlive state updates from the main process
 function flash(msg, level) {
+  localFlash = { msg, level, until: Date.now() + 6000 };
   runtime = { ...runtime, message: msg, messageLevel: level };
   renderStatus();
   clearTimeout(flashTimer);
-  flashTimer = setTimeout(() => { if (runtime.message === msg) api.clearMessage(); }, 5000);
+  flashTimer = setTimeout(() => { localFlash = null; if (runtime.message === msg) { runtime = { ...runtime, message: null }; renderStatus(); } }, 6000);
 }
 
 // ---------- drag & drop ----------
@@ -1177,6 +1244,7 @@ function setupEditor() {
     sync = await api.syncGet();
     presenter = await api.presenterGet();
     centerInfo = await api.centerGet();
+    filesPrefs = await api.filesPrefs();
     $('settings').hidden = false;
     renderSettings();
   };
@@ -1310,6 +1378,7 @@ async function init() {
   setupShowMode();
   setupTimerScreen();
   setupCenter();
+  setupFilesSettings();
   setupMidi();
   midi = await api.midiGet();
   startMidi();
@@ -1320,6 +1389,7 @@ async function init() {
 
   api.on('state', (s) => {
     runtime = s;
+    if (!s.message && localFlash && Date.now() < localFlash.until) runtime = { ...s, message: localFlash.msg, messageLevel: localFlash.level };
     renderGrid();
     renderStatus();
     renderPreflightButton();

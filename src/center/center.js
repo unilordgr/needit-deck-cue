@@ -85,16 +85,46 @@ function linkedNames() {
 }
 
 // Linked computers play by position, so their lists should match.
+const listOf = (n) => JSON.stringify(n.state.cues.map((c) => [c.name, c.file]));
 function listsDiffer() {
-  const lists = nodes.filter((n) => linked.has(n.id) && n.online && n.state).map((n) => JSON.stringify(n.state.cues.map((c) => c.name)));
-  return new Set(lists).size > 1;
+  return new Set(nodes.filter((n) => linked.has(n.id) && n.online && n.state).map(listOf)).size > 1;
+}
+
+const plural = (k, word) => `${k} ${word}${k === 1 ? '' : 's'}`;
+
+// Makes the targets identical to the source: files, cues, saved timers.
+async function copyList(source, targets) {
+  notice(`Copying the list of ${source.name} to ${targets.map((t) => t.name).join(', ')}…`, 'info');
+  const r = await window.center.copyShow(source.id, targets.map((t) => t.id));
+  if (r.ok) notice(`${targets.map((t) => t.name).join(', ')} now ${targets.length === 1 ? 'has' : 'have'} the same list as ${source.name}.`, 'info');
+  else notice(r.error);
+}
+
+// A computer was just linked: if its list differs from the others, offer to copy the set-up one across,
+// so a backup doesn't have to be loaded by hand.
+function offerCopy(id) {
+  const me = nodeById(id);
+  const others = nodes.filter((n) => n.id !== id && linked.has(n.id) && n.online && n.state);
+  if (!me || !me.state || !others.length || listOf(me) === listOf(others[0])) return;
+  const [source, targets] = !me.state.cues.length || others[0].state.cues.length
+    ? [others[0], [me]]
+    : [me, others];
+  const k = source.state.cues.length;
+  if (!k) return;
+  const names = targets.map((t) => t.name).join(' and ');
+  const text = targets.some((t) => t.state.cues.length)
+    ? `${names} has a different list.\n\nReplace it with the ${plural(k, 'presentation')} and cues from ${source.name}?`
+    : `Copy the ${plural(k, 'presentation')} and cues from ${source.name} to ${names}?`;
+  if (confirm(text)) copyList(source, targets);
 }
 
 function toggleLink(id) {
-  if (linked.has(id)) linked.delete(id); else linked.add(id);
+  const on = !linked.has(id);
+  if (on) linked.add(id); else linked.delete(id);
   window.center.setPrefs({ linked: [...linked] });
   signatures.clear();
   render();
+  if (on) offerCopy(id);
 }
 
 // ---------- rendering ----------
@@ -112,7 +142,7 @@ function cardHtml(n) {
   if (!n.online) banner = 'This computer is not answering. Check that Deck Cue is open on it and that it is on the network.';
   else if (!n.manage) banner = 'This computer only takes play controls. To send it files, open Settings on it and switch on “Connect to Command Center”.';
   else if (!n.keyOk) banner = 'This computer has a network key. Type the same key under Settings here.';
-  else if (isLinked && listsDiffer()) banner = 'The linked computers have different lists. They play by position, so make the lists match.';
+  else if (isLinked && listsDiffer()) banner = 'DIFFER';
 
   if (!s) {
     return `<header class="pc-head"><span class="dot${n.online ? ' on' : ''}"></span>
@@ -145,7 +175,9 @@ function cardHtml(n) {
       <div class="pc-title"><div class="pc-name">${esc(n.name)}</div><div class="pc-sub">${esc(sub)}</div></div>
       ${n.online ? linkBtn : '<button class="btn ghost small" data-act="remove">Remove</button>'}
     </header>
-    ${banner ? `<div class="pc-banner">${esc(banner)}</div>` : ''}
+    ${banner === 'DIFFER'
+    ? `<div class="pc-banner">The linked computers have different lists. They play by position, so they should match. ${s.cues.length ? '<button class="btn small" data-act="copy-from">Copy this list to the others</button>' : ''}</div>`
+    : banner ? `<div class="pc-banner">${esc(banner)}</div>` : ''}
     <div class="pc-tally">
       <div class="tally-row live${s.live ? ' on' : ''}"><span class="word">Live</span>
         ${s.live ? `<span class="num">${s.live.number}</span><span class="name">${esc(s.live.name)}</span>${s.live.slide ? `<span class="slide">${s.live.slide}/${s.live.slides}</span>` : ''}` : '<span class="name">Nothing live</span>'}</div>
@@ -275,6 +307,11 @@ board.addEventListener('click', async (e) => {
     const a = actEl.dataset.act;
     const c = row && n.state ? n.state.cues.find((x) => x.id === row.dataset.cue) : null;
     if (a === 'link') toggleLink(id);
+    else if (a === 'copy-from') {
+      const others = nodes.filter((x) => x.id !== id && linked.has(x.id) && x.online);
+      const k = n.state.cues.length;
+      if (others.length && confirm(`Replace the list on ${others.map((x) => x.name).join(' and ')} with the ${plural(k, 'presentation')} and cues from ${n.name}?`)) copyList(n, others);
+    }
     else if (a === 'go') actGroup(id, '/api/go');
     else if (a === 'stop') actGroup(id, '/api/stop');
     else if (a === 'next') actGroup(id, '/api/next');
@@ -337,7 +374,23 @@ board.addEventListener('change', (e) => {
 // Files go to every linked computer, so a main and its backup get the same list in one drop.
 // target: null (add at the end) or { replaceCueId, number } (dropped on a cue).
 async function send(id, files, target) {
-  const results = await Promise.all(group(id).map((n) => {
+  const targets = group(id);
+  const where = targets.map((n) => n.name).join(' and ');
+  const base = (f) => f.split(/[\\/]/).pop();
+  if (target) {
+    // Dropped on a cue: its file is replaced, on the computer and in its folder.
+    const cue = nodeById(id).state.cues[target.number - 1];
+    if (!confirm(`Replace the file of cue ${target.number} “${cue.name}” on ${where} with ${base(files[0])}?\n\nThe old file is moved out of the show folder, so only the latest version stays.`)) return;
+  } else {
+    // Dropped on empty space: a file that is already there is a new version of it, not another cue.
+    files = files.filter((f) => {
+      const has = targets.map((n) => [n, n.state ? n.state.cues.find((c) => c.file === base(f)) : null]).filter(([, c]) => c);
+      if (!has.length) return true;
+      return confirm(`“${base(f)}” is already on ${has.map(([n, c]) => `${n.name} (cue ${c.number})`).join(' and ')}.\n\nSend this version and replace it there?`);
+    });
+    if (!files.length) return;
+  }
+  const results = await Promise.all(targets.map((n) => {
     if (!canManage(n)) return { ok: false, error: `${n.name} is not accepting files.` };
     const t = target ? { replaceCueId: n.id === id ? target.replaceCueId : String(target.number), index: target.number + 1 } : null;
     return window.center.send(n.id, files, t);

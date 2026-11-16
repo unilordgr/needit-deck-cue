@@ -76,6 +76,28 @@ function upload(node, file, onProgress) {
   });
 }
 
+function download(node, urlPath, dest) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: node.address, port: node.port, path: urlPath, headers: prefs.key ? { 'X-DeckCue-Key': prefs.key } : {} }, (res) => {
+      if (res.statusCode !== 200) {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          let json = {};
+          try { json = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { /* not JSON */ }
+          resolve({ ok: false, error: json.error || `The computer answered ${res.statusCode}` });
+        });
+        return;
+      }
+      const out = fs.createWriteStream(dest);
+      res.pipe(out);
+      out.on('finish', () => resolve({ ok: true }));
+      out.on('error', (e) => resolve({ ok: false, error: e.message }));
+    });
+    req.on('error', (e) => resolve({ ok: false, error: e.message }));
+  });
+}
+
 // ---------- players ----------
 let pushTimer = null;
 function pushNodes() {
@@ -199,6 +221,59 @@ async function sendFiles(id, files, target) {
   return errors.length ? { ok: false, error: errors.join('\n') } : { ok: true };
 }
 
+// Makes the target computers the same as the source: its presentations, cues (with their settings),
+// saved timers and screen settings. Files travel source -> here -> target.
+async function copyShow(sourceId, targetIds) {
+  const src = nodes.get(sourceId);
+  if (!src) return { ok: false, error: 'That computer is gone.' };
+  const showRes = await request(src, 'GET', '/api/show');
+  if (!showRes.ok || !Array.isArray(showRes.cues)) return { ok: false, error: `Could not read the list of ${src.name}.` };
+  const report = (id, u) => { if (win && !win.isDestroyed()) win.webContents.send('upload', { id, ...u }); };
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'deckcue-copy-'));
+  const local = new Map(); // source cue id -> file fetched to this computer
+  const errors = [];
+  try {
+    for (const tid of targetIds) {
+      const t = nodes.get(tid);
+      if (!t) continue;
+      const cleared = await request(t, 'POST', '/api/cues/clear');
+      if (!cleared.ok) { errors.push(`${t.name}: ${cleared.error}`); continue; }
+      for (let i = 0; i < showRes.cues.length; i++) {
+        const cue = showRes.cues[i];
+        const name = cue.file && cue.file.path ? cue.file.path.split(/[\\/]/).pop() : null;
+        if (!name) continue;
+        report(tid, { name, sent: 0, total: 1 });
+        if (!local.has(cue.id)) {
+          const dir = path.join(tmp, String(i));
+          fs.mkdirSync(dir);
+          const got = await download(src, `/api/cue/${encodeURIComponent(cue.id)}/download`, path.join(dir, name));
+          if (!got.ok) { errors.push(`${name}: ${got.error}`); report(tid, { name, done: true, error: got.error }); continue; }
+          local.set(cue.id, path.join(dir, name));
+        }
+        const up = await upload(t, local.get(cue.id), (sent, total) => report(tid, { name, sent, total }));
+        let res = up;
+        if (up.ok) {
+          res = await request(t, 'POST', '/api/cues', { file: up.name, label: cue.label || '', autoSlideshow: cue.autoSlideshow, duplicate: true });
+          if (res.ok) {
+            await request(t, 'POST', `/api/cue/${encodeURIComponent(res.id)}/update`, {
+              startSlide: cue.startSlide || 1, duration: cue.duration || 0, notes: cue.notes || '', color: cue.color || '#3a4150',
+              output: ['default', 'auto', 'window'].includes(cue.output) ? cue.output : 'default', presenterControl: cue.presenterControl !== false,
+            });
+          }
+        }
+        if (!res.ok) errors.push(`${t.name}, ${name}: ${res.error}`);
+        report(tid, { name, done: true, error: res.ok ? null : res.error });
+      }
+      const st = showRes.settings || {};
+      if (Array.isArray(st.timerPresets)) await request(t, 'POST', '/api/timer/presets', { presets: st.timerPresets });
+      if (st.timerScreen) await request(t, 'POST', '/api/timerscreen/config', { idle: st.timerScreen.idle, livePip: st.timerScreen.livePip, title: st.timerScreen.title, showClock: st.timerScreen.showClock });
+    }
+  } finally {
+    fs.rm(tmp, { recursive: true, force: true }, () => {});
+  }
+  return errors.length ? { ok: false, error: errors.join('\n') } : { ok: true };
+}
+
 // ---------- window ----------
 function setupIpc() {
   ipcMain.handle('nodes:get', () => snapshot());
@@ -209,6 +284,7 @@ function setupIpc() {
     return request(node, method, urlPath, body);
   });
   ipcMain.handle('node:send', (_e, id, files, target) => sendFiles(id, files, target));
+  ipcMain.handle('node:copyShow', (_e, sourceId, targetIds) => copyShow(sourceId, targetIds));
   ipcMain.handle('node:add', (_e, address) => addByAddress(address));
   ipcMain.handle('node:remove', (_e, id) => {
     const node = nodes.get(id);

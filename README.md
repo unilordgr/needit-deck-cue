@@ -25,6 +25,11 @@ Connect all the computers to the same network (a simple switch is enough). The C
 - **Choose what the screen shows:** Slides, a full-screen **Timer** or the **Clock**. Under *More*: what to show between presentations, a small timer on top of the slides, and Blackout.
 - **Run the timer:** saved timers with one click, Start/Pause, −1 and +1 minute while it runs, another time, or `@15:30` to count down to a time of day.
 
+**Files from a USB stick**
+Drop files straight from the stick. They are copied to the show computers, so the stick can be taken out.
+- Drop a file **on a cue** and you are asked whether to replace that cue's file. The old file then leaves the show folder (it goes to the Trash).
+- Drop a file with the **same name** as one that is already there and you are asked whether to replace it. It becomes the new version of that cue; no second cue is made.
+
 **Link: computers that play together**
 Press **Link** on two or more computers. They get a shared blue frame, and from then on anything you do on one happens on all of them:
 - Play, GO, Stop and slides
@@ -33,6 +38,8 @@ Press **Link** on two or more computers. They get a shared blue frame, and from 
 - changes to a cue: order, full screen, timer, remove
 
 Cues are matched by their position in the list, and you get a warning if the lists differ.
+
+**Linking a computer that is already set up:** when you link a second computer to one that already has its list, the Command Center offers to copy everything across: the presentations, the cues with their settings, and the saved timers. If the lists drift apart later, the warning has a **Copy this list to the others** button.
 
 **Safety**
 - A show computer only accepts files after you switch on *Connect to Command Center* on it.
@@ -100,6 +107,14 @@ The speaker timer can also be shown on the output itself, in three ways. Set it 
 - Remote: `POST /api/timerscreen[?state=on|off]`, OSC `/deckcue/timerscreen [0|1]`, or the Companion *Timer: full screen on the output* action. A backup machine follows the Full screen button.
 
 Tested on macOS over a fullscreen WPS slideshow and the PDF player. Not yet tried over PowerPoint or Keynote, or on Windows.
+
+## The show folder
+
+Presentations you drop into Deck Cue are **copied into the show folder** on that computer (by default `needit Deck Cue` in the home folder), and the cue plays the copy. A USB stick can be taken out straight away.
+- Dropping a file **on a cue** asks before replacing its file. The old file then leaves the folder (to the Trash), so the folder holds only the latest versions.
+- Dropping a file whose **name is already in the folder** asks before replacing it. The cue that uses it gets the new version; no duplicate cue is made.
+- Dropping the very same file again does nothing.
+- Settings › Playing presentations has the switch (*Copy presentations into this computer's show folder*) and the folder. With the switch off, cues play files from where they are.
 
 ## Versions of files
 

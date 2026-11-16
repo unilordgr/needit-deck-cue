@@ -9,6 +9,8 @@
 //   POST /api/cue/<ref>/update             { label, autoSlideshow, startSlide, duration, notes, color, output }
 //   POST /api/cue/<ref>/move?to=<n>        new position, 1-based
 //   POST /api/cue/<ref>/delete
+//   POST /api/cues/clear                   empty the list (refused while something is live)
+//   GET  /api/cue/<ref>/download           the cue's file, to copy this list to another computer
 //   POST /api/timerscreen/config           { idle, livePip, title, showClock }
 //   POST /api/timer/presets                { presets: [{ name, minutes }] }   the saved timers
 const fs = require('fs');
@@ -92,10 +94,12 @@ function createManage({ getConfig, extensions, actions }) {
     }
     const isFile = req.method === 'PUT' && a === 'files' && b && !c;
     const isCueAdd = req.method === 'POST' && a === 'cues' && !b;
+    const isClear = req.method === 'POST' && a === 'cues' && b === 'clear' && !c;
+    const isDownload = req.method === 'GET' && a === 'cue' && b && c === 'download';
     const isCueEdit = req.method === 'POST' && a === 'cue' && b && ['file', 'update', 'move', 'delete'].includes(c);
     const isTimerCfg = req.method === 'POST' && a === 'timerscreen' && b === 'config' && !c;
     const isPresets = req.method === 'POST' && a === 'timer' && b === 'presets' && !c;
-    if (!isFile && !isCueAdd && !isCueEdit && !isTimerCfg && !isPresets) return false;
+    if (!isFile && !isCueAdd && !isCueEdit && !isTimerCfg && !isPresets && !isClear && !isDownload) return false;
 
     const answer = (work) => {
       Promise.resolve().then(work).then((r) => send(res, 200, { ok: true, ...(r || {}) }))
@@ -104,7 +108,17 @@ function createManage({ getConfig, extensions, actions }) {
     if (!cfg.accept) { req.resume(); send(res, 403, { ok: false, error: 'This computer does not accept a Command Center. Turn it on in its Settings.' }); return true; }
     if (!keyOk) { req.resume(); send(res, 401, { ok: false, error: 'Wrong network key.' }); return true; }
 
-    if (isFile) answer(async () => saveFile(req, safeName(decodeURIComponent(b))));
+    if (isDownload) {
+      try {
+        const file = actions.cuePath(decodeURIComponent(b));
+        const st = fs.statSync(file);
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': st.size, 'X-File-Name': encodeURIComponent(path.basename(file)) });
+        fs.createReadStream(file).pipe(res);
+      } catch (e) { send(res, e.code && e.code >= 400 ? e.code : 400, { ok: false, error: e.message }); }
+      return true;
+    }
+    if (isClear) answer(() => { req.resume(); return actions.clearCues(); });
+    else if (isFile) answer(async () => saveFile(req, safeName(decodeURIComponent(b))));
     else if (isCueAdd) answer(async () => { const body = await readJson(req); return actions.addCue({ ...body, file: received(body.file) }); });
     else if (isTimerCfg) answer(async () => actions.timerScreenConfig(await readJson(req)));
     else if (isPresets) answer(async () => actions.setTimerPresets(await readJson(req)));

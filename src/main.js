@@ -43,8 +43,11 @@ const DEFAULT_PRESENTER = { enabled: false, pin: '' };
 // Command Center: lets one computer on the network send files to this player and manage its cues.
 // folder = where received files are kept (outside Documents, so macOS asks for no extra permission).
 const DEFAULT_CENTER = { accept: false, folder: '', key: '', name: '', id: '' };
+// Files dropped into the app are copied into the show folder (prefs.center.folder), so the USB stick they
+// came from can be removed and there is one place that holds the latest version of every file.
+const DEFAULT_FILES = { copy: true };
 const DEFAULT_MIDI = { enabled: false, input: 'all', channel: 0, notes: true, noteBase: 60, programChange: true, msc: true, map: {} };
-let prefs = { control: { ...DEFAULT_CONTROL }, sync: { ...DEFAULT_SYNC }, showMode: { ...DEFAULT_SHOWMODE }, presenter: { ...DEFAULT_PRESENTER }, midi: { ...DEFAULT_MIDI }, center: { ...DEFAULT_CENTER } };
+let prefs = { control: { ...DEFAULT_CONTROL }, sync: { ...DEFAULT_SYNC }, showMode: { ...DEFAULT_SHOWMODE }, presenter: { ...DEFAULT_PRESENTER }, midi: { ...DEFAULT_MIDI }, center: { ...DEFAULT_CENTER }, files: { ...DEFAULT_FILES } };
 let beacon = null;
 let centers = []; // names of Command Centers connected to this player
 let control = null;
@@ -147,6 +150,7 @@ function loadInitial() {
     presenter: { ...DEFAULT_PRESENTER, ...(saved.presenter || {}) },
     midi: { ...DEFAULT_MIDI, ...(saved.midi || {}) },
     center: { ...DEFAULT_CENTER, ...(saved.center || {}) },
+    files: { ...DEFAULT_FILES, ...(saved.files || {}) },
   };
   if (!prefs.center.id) prefs.center.id = crypto.randomUUID();
   if (!prefs.center.folder) prefs.center.folder = path.join(os.homedir(), 'needit Deck Cue');
@@ -528,6 +532,70 @@ function setTimerScreenForced(on, content) {
   broadcast();
 }
 
+// ---------- show folder: bringing files in, keeping only the latest ----------
+const samePath = (a, b) => path.resolve(a) === path.resolve(b);
+
+function inShowFolder(file) {
+  const rel = path.relative(prefs.center.folder, file);
+  return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+// Positions (1-based) of the cues that use this file.
+function cuesUsing(file) {
+  return show.cues.map((c, i) => (c.file && c.file.path && samePath(c.file.path, file) ? i + 1 : 0)).filter(Boolean);
+}
+
+function hashFile(file) {
+  return new Promise((resolve, reject) => {
+    const h = crypto.createHash('sha1');
+    fs.createReadStream(file).on('data', (c) => h.update(c)).on('end', () => resolve(h.digest('hex'))).on('error', reject);
+  });
+}
+
+async function sameContent(a, b) {
+  const [sa, sb] = [fs.statSync(a), fs.statSync(b)];
+  if (sa.size !== sb.size) return false;
+  // Very large decks: comparing dates is enough (hashing gigabytes would stall the drop).
+  if (sa.size > 512 * 1024 * 1024) return Math.abs(sa.mtimeMs - sb.mtimeMs) < 2000;
+  return (await hashFile(a)) === (await hashFile(b));
+}
+
+// Copies a dropped file into the show folder. Returns { path } to use for the cue, or { conflict } when a
+// different file with that name is already there and replacing it has not been confirmed yet.
+async function importFile(src, overwrite) {
+  if (!prefs.files.copy) return { path: src, usedBy: [] };
+  const folder = prefs.center.folder;
+  await fs.promises.mkdir(folder, { recursive: true });
+  const name = path.basename(src);
+  const dest = path.join(folder, name);
+  if (samePath(src, dest)) return { path: dest, usedBy: cuesUsing(dest) };
+  const exists = fs.existsSync(dest);
+  if (exists) {
+    if (await sameContent(src, dest)) return { path: dest, same: true, usedBy: cuesUsing(dest) };
+    if (!overwrite) return { conflict: true, name, usedBy: cuesUsing(dest) };
+  }
+  const part = path.join(folder, `.${name}.${process.pid}.part`);
+  try {
+    await fs.promises.copyFile(src, part);
+    const st = fs.statSync(src);
+    await fs.promises.utimes(part, st.atime, st.mtime); // keep the file's own date
+    await fs.promises.rename(part, dest);
+  } catch (e) {
+    fs.rm(part, { force: true }, () => {});
+    return { error: exists ? `${name} is in use and could not be replaced. Stop its cue and try again.` : `Could not copy ${name}: ${e.message}` };
+  }
+  if (versions) versions.scan();
+  return { path: dest, replaced: exists, usedBy: cuesUsing(dest) };
+}
+
+// After a cue got a new file: the old one leaves the show folder (to the Trash), unless another cue
+// still uses it or it was never ours.
+async function retireFile(oldPath, newPath) {
+  if (!oldPath || !prefs.files.copy || (newPath && samePath(oldPath, newPath))) return false;
+  if (!inShowFolder(oldPath) || cuesUsing(oldPath).length || !fs.existsSync(oldPath)) return false;
+  try { await shell.trashItem(oldPath); return true; } catch { return false; }
+}
+
 // ---------- Command Center (files and cue management from another computer) ----------
 function playerName() {
   return prefs.center.name || `${os.hostname().replace(/\.local$/, '')}${PROFILE ? ` (${PROFILE})` : ''}`;
@@ -546,7 +614,11 @@ function showChanged() {
 const CUE_FIELDS = ['label', 'autoSlideshow', 'startSlide', 'duration', 'notes', 'color', 'output', 'presenterControl'];
 const manageActions = {
   info: playerInfo,
-  addCue({ file, index, label, autoSlideshow }) {
+  addCue({ file, index, label, autoSlideshow, duplicate }) {
+    // A file that a cue already uses was just replaced in place: it is the new version of that cue,
+    // not another cue. (duplicate: true is for copying a whole list, which may hold a file twice.)
+    const used = duplicate ? [] : cuesUsing(file);
+    if (used.length) return { id: show.cues[used[0] - 1].id, number: used[0], existing: true };
     const cue = {
       id: crypto.randomUUID().slice(0, 8), label: label ? String(label).slice(0, 120) : '', file: { path: file }, app: 'auto',
       autoSlideshow: autoSlideshow === true || autoSlideshow === false ? autoSlideshow : null,
@@ -560,9 +632,24 @@ const manageActions = {
   },
   setCueFile(ref, file) {
     const cue = cueByRef(ref);
+    const old = cue.file ? cue.file.path : null;
     cue.file = { path: file };
     showChanged();
+    retireFile(old, file);
     return { id: cue.id };
+  },
+  // The file of a cue, for a Command Center that copies this list to another computer.
+  cuePath(ref) {
+    const cue = cueByRef(ref);
+    if (!cue.file || !fs.existsSync(cue.file.path)) throw Object.assign(new Error('That cue has no file here'), { code: 404 });
+    return cue.file.path;
+  },
+  clearCues() {
+    if (state.live || state.busyCueId) throw Object.assign(new Error('Something is live on that computer. Stop it first.'), { code: 409 });
+    show.cues = [];
+    state.armedCueId = null;
+    showChanged();
+    return {};
   },
   updateCue(ref, patch) {
     const cue = cueByRef(ref);
@@ -1148,6 +1235,12 @@ function setupIpc() {
     return r.canceled ? null : r.filePaths[0];
   });
   ipcMain.handle('files:reveal', (_e, p) => shell.showItemInFolder(p));
+  ipcMain.handle('files:import', (_e, src, overwrite) => importFile(src, !!overwrite).catch((e) => ({ error: e.message })));
+  ipcMain.handle('files:retire', (_e, oldPath, newPath) => retireFile(oldPath, newPath));
+  ipcMain.handle('files:prefs', (_e, patch) => {
+    if (patch) { prefs.files = { ...prefs.files, ...patch }; autosave(); }
+    return { ...prefs.files, folder: prefs.center.folder };
+  });
   ipcMain.handle('control:get', () => ({ config: prefs.control, status: control.getStatus(), addresses: localAddresses() }));
   ipcMain.handle('control:set', (_e, config) => {
     prefs.control = { ...DEFAULT_CONTROL, ...config };
