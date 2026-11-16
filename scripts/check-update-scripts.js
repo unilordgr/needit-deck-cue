@@ -25,6 +25,23 @@ if (process.platform === 'win32') {
   if (fs.existsSync(next)) fail('the downloaded file was left behind');
   if (fs.existsSync(bat)) fail('the batch file did not remove itself');
   console.log('ok    portable update: the file was replaced, nothing left behind');
+
+  // The real case: the old .exe is still locked for a few seconds while the app closes. The script must wait
+  // and try again, without a console (that is how the app starts it).
+  fs.writeFileSync(cur, 'old');
+  fs.writeFileSync(next, 'newer');
+  fs.writeFileSync(bat, PORTABLE_BAT, 'ascii');
+  const { spawn } = require('child_process');
+  const lock = spawn('powershell.exe', ['-NoProfile', '-Command', "$f = [IO.File]::Open($env:LOCK_FILE, 'Open', 'ReadWrite', 'None'); 'locked'; Start-Sleep -Seconds 4; $f.Close()"], { env: { ...process.env, LOCK_FILE: cur }, stdio: ['ignore', 'pipe', 'ignore'] });
+  const locked = spawnSync('powershell.exe', ['-NoProfile', '-Command', "for ($i = 0; $i -lt 50; $i++) { try { $f = [IO.File]::Open($env:LOCK_FILE, 'Open', 'ReadWrite', 'None'); $f.Close(); Start-Sleep -Milliseconds 200 } catch { 'locked'; break } }"], { env: { ...process.env, LOCK_FILE: cur }, encoding: 'utf8' });
+  if (!/locked/.test(locked.stdout || '')) fail('could not lock the test file');
+  const started = Date.now();
+  const r2 = spawnSync('cmd.exe', ['/c', bat], { env: { ...process.env, NEW_EXE: next, CUR_EXE: cur, RELAUNCH: '0' }, timeout: 90000, stdio: 'ignore', windowsHide: true });
+  lock.kill();
+  if (r2.status !== 0) fail(`with the file locked, the batch file ended with ${r2.status}`);
+  if (fs.readFileSync(cur, 'utf8') !== 'newer') fail('with the file locked, it gave up instead of waiting');
+  if (Date.now() - started < 1500) fail('it did not wait for the lock');
+  console.log(`ok    portable update: waited ${Math.round((Date.now() - started) / 100) / 10} s for the locked file, then replaced it`);
 } else if (process.platform === 'darwin') {
   const app = path.join(dir, 'needit Deck Cue.app');
   const stage = `${app}.update`;

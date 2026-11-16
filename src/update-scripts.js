@@ -7,16 +7,18 @@ const PORTABLE_BAT = `@echo off
 set TRIES=0
 :again
 copy /y "%NEW_EXE%" "%CUR_EXE%" >nul 2>&1
-if errorlevel 1 (
-  set /a TRIES+=1
-  if %TRIES% GEQ 40 goto done
-  timeout /t 1 /nobreak >nul
-  goto again
-)
+if not errorlevel 1 goto copied
+set /a TRIES+=1
+if %TRIES% GEQ 40 goto done
+rem Wait about a second. (timeout needs a console, which a hidden helper does not have; ping does not.)
+ping -n 2 127.0.0.1 >nul
+goto again
+:copied
 del "%NEW_EXE%" >nul 2>&1
 :done
 if "%RELAUNCH%"=="1" start "" "%CUR_EXE%"
-del "%~f0" >nul 2>&1
+rem A batch file that deletes itself must stop reading itself first, or cmd reports an error.
+(goto) 2>nul & del "%~f0"
 `;
 
 // Waits for the running app to quit, then swaps the new app into its place. If the swap fails, the old app is
