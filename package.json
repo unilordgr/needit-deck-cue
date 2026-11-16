@@ -1,14 +1,14 @@
 {
   "name": "needit-deck-cue",
   "productName": "needit Deck Cue",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Cue launcher for PowerPoint, WPS Office, Keynote and PDF presentations, with a Command Center app that runs many of them from one computer",
   "author": {
     "name": "needit Creative",
     "url": "https://needitcreative.com"
   },
   "homepage": "https://needitcreative.com",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/unilordgr/needit-deck-cue.git"

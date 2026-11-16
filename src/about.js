@@ -1,4 +1,8 @@
-// Who made the apps and where to find them. Shared by needit Deck Cue and needit Command Center.
+// needit Deck Cue and needit Command Center
+// Copyright (C) 2026 needit Creative (https://needitcreative.com)
+// Free software under the GNU General Public License, version 3 or later. See LICENSE.
+//
+// Who made the apps and where to find them. Shared by both apps.
 const { app, shell, ipcMain } = require('electron');
 
 const MAKER = 'needit Creative';
@@ -14,7 +18,7 @@ function setupAbout(appName) {
   app.setAboutPanelOptions({
     applicationName: appName,
     applicationVersion: app.getVersion(),
-    copyright: `Created by ${MAKER} · ${SITE}\nFree to use. It may not be sold.`,
+    copyright: `Created by ${MAKER} · ${SITE}\nFree and open source (GPL-3.0).`,
     website: LINKS.site,
   });
   ipcMain.handle('about:get', () => ({ name: appName, version: app.getVersion(), maker: MAKER, site: SITE }));

@@ -6,7 +6,7 @@
 
 # needit Deck Cue and needit Command Center
 
-Free presentation cueing for live events, for macOS and Windows. Created by **[needit Creative](https://needitcreative.com)** for AV operators.
+Free and open source presentation cueing for live events, for macOS and Windows. Created by **[needit Creative](https://needitcreative.com)** for AV operators.
 
 There are two apps:
 - **needit Deck Cue** runs on every computer that shows presentations. Each presentation is a big cue button: press it and the deck opens full screen on the right output. It works with **Microsoft PowerPoint**, **WPS Office**, **Keynote** and **PDF** files (PDFs play in a player built into the app).
@@ -42,7 +42,7 @@ The Bitfocus Companion module is `needit-deckcue-<version>.tgz` on the same page
 
 ### Opening the apps the first time
 
-The apps are free and are not yet signed with an Apple or Microsoft developer certificate, so both systems ask before they open them.
+The apps are free and are not yet signed with an Apple or Microsoft developer certificate, so both systems ask before they open them. See the [code signing policy](#code-signing-policy).
 
 - **macOS:** unzip, move the app to *Applications* and open it. macOS says it can't check the app. Open **System Settings › Privacy & Security**, scroll down and press **Open Anyway**. You only do this once.
 - **Windows:** SmartScreen shows *Windows protected your PC*. Press **More info**, then **Run anyway**.
@@ -479,11 +479,27 @@ Test decks for a quick check are in `test-decks/`.
 
 ## License
 
-**Free to use. Not for sale.**
+**Free and open source.** needit Deck Cue and needit Command Center are licensed under the [GNU General Public License, version 3](LICENSE) or (at your option) any later version.
 
-You may use, copy, change and share needit Deck Cue and needit Command Center free of charge, including at paid shows and events that you produce or operate. You may not sell the software, or licenses for it, or a product whose value comes mainly from it.
+In short: you may use the apps for anything, including paid shows and events, and you may copy, change and share them. If you pass on a changed version, it must stay open under the same license, with its source. Nobody can turn the apps into a closed product.
 
-The exact terms are in [LICENSE](LICENSE): the MIT License with the Commons Clause condition. The Bitfocus Companion module in `companion-module/` is plain MIT. Third-party components are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+The Bitfocus Companion module in `companion-module/` is under the MIT License, as Companion modules are. Third-party components are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+Copyright © 2026 needit Creative.
+
+## Code signing policy
+
+**Status:** the Windows builds are not signed yet. This project is applying for free code signing from [SignPath.io](https://signpath.io), with a certificate by [SignPath Foundation](https://signpath.org). This is the policy that will apply. The macOS builds are not part of it.
+
+- **What is signed:** only the Windows installers and portable builds that GitHub Actions makes from this repository (`.github/workflows/build.yml`). Nothing built elsewhere is signed.
+- **Committers and reviewers:** [needit Creative](https://github.com/unilordgr). Changes from anyone else are reviewed before they are merged.
+- **Approvers:** [needit Creative](https://github.com/unilordgr). Every release is approved by hand before it is signed.
+
+**Privacy:** this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. The apps talk only to other copies of needit Deck Cue and needit Command Center, and to the remote controls you connect, on your own network. They have no accounts, no analytics and no update checks.
+
+**System settings:** Show mode silences notifications and keeps the computer awake while it is on, and puts the previous settings back when it turns off. On Windows, choosing an output for a PowerPoint cue sets PowerPoint's slide-show monitor. Both happen only when the operator asks for them, and both are described in this README.
+
+**Removing the apps:** on Windows, use *Settings › Apps* (the installer adds an uninstaller); the portable build is a single file to delete, together with the `Data` folder it keeps next to itself. On macOS, move the app to the Trash.
 
 ## Credits
 
