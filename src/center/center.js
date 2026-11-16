@@ -133,6 +133,96 @@ function screenMode(s) {
   return ts.forced ? (ts.content === 'clock' ? 'clock' : 'timer') : 'slides';
 }
 
+// ---------- updates ----------
+let latest = null;     // the newest version this Command Center knows of: { version }
+let selfUpdate = null; // this Command Center's own update state
+let saidUpdated = false;
+function versionNewer(a, b) {
+  const pa = String(a).split('.').map(Number);
+  const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  return false;
+}
+// The version a show computer could move to: what this Command Center found, or what that computer found itself.
+function updateTarget(n) {
+  const mine = n.version;
+  if (!mine) return null;
+  let best = null;
+  for (const v of [latest && latest.version, n.state && n.state.update && n.state.update.available]) {
+    if (v && versionNewer(v, mine) && (!best || versionNewer(v, best))) best = v;
+  }
+  return best;
+}
+function updateSig(n) {
+  const u = (n.state && n.state.update) || {};
+  return [n.version, updateTarget(n), n.updating && [n.updating.stage, n.updating.percent], u.status, u.status === 'downloading' ? Math.floor((u.percent || 0) / 4) : 0, u.busy, u.blocked];
+}
+function updateStrip(n) {
+  if (!n.online) return '';
+  const u = (n.state && n.state.update) || {};
+  const to = updateTarget(n);
+  let text = '';
+  let button = '';
+  if (n.updating) {
+    const { stage, percent } = n.updating;
+    text = stage === 'downloading' ? `Downloading the update here: ${percent}%` : stage === 'sending' ? `Sending the update to this computer: ${percent}%` : 'Starting the update…';
+  } else if (u.status === 'installing') text = 'Installing the update. Deck Cue starts again there in a moment.';
+  else if (u.status === 'downloading') text = `That computer is downloading the update: ${u.percent || 0}%`;
+  else if (!to) return '';
+  else {
+    text = `Deck Cue ${n.version} is on this computer. Version ${to} is out.`;
+    if (!canManage(n)) text += ' To update it from here, switch on “Connect to Command Center” in its Settings.';
+    else if (u.blocked) text += ` ${u.blocked}`;
+    else if (u.busy) { text += ` ${u.busyWhy || 'A show is running there.'}`; button = '<button class="btn small" data-act="update" disabled>Update</button>'; }
+    else button = '<button class="btn small go" data-act="update">Update</button>';
+  }
+  return `<div class="pc-update"><span>${esc(text)}</span>${button}</div>`;
+}
+async function updatePlayer(id) {
+  const n = nodeById(id);
+  if (!n) return;
+  const r = await window.center.updateNode(id);
+  if (!r.ok) notice(`${n.name}: ${r.error}`);
+}
+function updatable() {
+  return nodes.filter((n) => n.online && canManage(n) && updateTarget(n) && !n.updating && !((n.state && n.state.update) || {}).busy && !((n.state && n.state.update) || {}).blocked
+    && !['installing', 'downloading'].includes(((n.state && n.state.update) || {}).status));
+}
+// The two buttons in the top bar and the Updates box in Settings.
+function renderUpdates() {
+  const list = updatable();
+  const all = $('updateAllBtn');
+  all.hidden = list.length < 2;
+  all.textContent = `Update ${list.length} computers`;
+  const u = selfUpdate;
+  const mine = $('selfUpdateBtn');
+  if (!u) { mine.hidden = true; return; }
+  const v = u.available;
+  const show = ['available', 'downloading', 'ready', 'installing'].includes(u.status) && !!v;
+  mine.hidden = !show;
+  mine.textContent = u.status === 'downloading' ? `Downloading ${u.percent}%` : u.status === 'installing' ? 'Updating…' : `Update Command Center ${v}`;
+  $('updateLine').textContent = {
+    idle: 'Not checked yet.',
+    checking: 'Looking for a new version…',
+    current: `You have the latest version (${u.current}).`,
+    available: `Version ${v} is available. You have ${u.current}.`,
+    downloading: `Downloading version ${v}: ${u.percent}%`,
+    ready: `Version ${v} is downloaded.${u.willInstallOnQuit ? ' It installs when you close the Command Center.' : ''}`,
+    installing: `Installing version ${v}. The Command Center starts again in a moment.`,
+  }[u.status] || '';
+  const note = u.error || (show && u.blocked) || (show && u.busyWhy) || '';
+  $('updateNote').hidden = !note;
+  $('updateNote').textContent = note;
+  const now = $('updateNow');
+  now.hidden = !(show && !u.blocked && u.status !== 'installing');
+  now.disabled = u.busy || u.status === 'downloading';
+  now.textContent = u.status === 'downloading' ? 'Downloading…' : 'Update now';
+  if (document.activeElement !== $('updateCheckOn')) $('updateCheckOn').checked = u.settings.check;
+  if (document.activeElement !== $('updateAuto')) $('updateAuto').checked = u.settings.auto;
+  $('updateAuto').disabled = !!u.blocked || !u.asset;
+  if (u.updatedFrom && !saidUpdated) { saidUpdated = true; notice(`The Command Center was updated to version ${u.current}.`, 'info'); window.center.updateSeen(); }
+}
+
 function cardHtml(n) {
   const s = n.state;
   const sub = [PLATFORM[n.platform] || '', s ? s.show : '', n.online ? '' : 'not connected'].filter(Boolean).join(', ');
@@ -178,6 +268,7 @@ function cardHtml(n) {
     ${banner === 'DIFFER'
     ? `<div class="pc-banner">The linked computers have different lists. They play by position, so they should match. ${s.cues.length ? '<button class="btn small" data-act="copy-from">Copy this list to the others</button>' : ''}</div>`
     : banner ? `<div class="pc-banner">${esc(banner)}</div>` : ''}
+    ${updateStrip(n)}
     <div class="pc-tally">
       <div class="tally-row live${s.live ? ' on' : ''}"><span class="word">Live</span>
         ${s.live ? `<span class="num">${s.live.number}</span><span class="name">${esc(s.live.name)}</span>${s.live.slide ? `<span class="slide">${s.live.slide}/${s.live.slides}</span>` : ''}` : '<span class="name">Nothing live</span>'}</div>
@@ -229,11 +320,12 @@ function cardHtml(n) {
 // Everything that changes what a card looks like (the running timer is drawn separately by tick()).
 function signature(n) {
   const s = n.state;
-  return JSON.stringify([linked.has(n.id), linked.has(n.id) && listsDiffer(), n.name, n.online, n.manage, n.keyOk, n.platform, s && [s.show, s.live, s.next, s.blackout, s.timerScreen, s.timer.running, s.timerPresets, s.cues], [...(uploads.get(n.id) || new Map()).entries()]]);
+  return JSON.stringify([updateSig(n), linked.has(n.id), linked.has(n.id) && listsDiffer(), n.name, n.online, n.manage, n.keyOk, n.platform, s && [s.show, s.live, s.next, s.blackout, s.timerScreen, s.timer.running, s.timerPresets, s.cues], [...(uploads.get(n.id) || new Map()).entries()]]);
 }
 
 function render() {
   const board = $('board');
+  renderUpdates();
   $('empty').hidden = nodes.length > 0;
   board.hidden = nodes.length === 0;
   const online = nodes.filter((n) => n.online).length;
@@ -307,6 +399,7 @@ board.addEventListener('click', async (e) => {
     const a = actEl.dataset.act;
     const c = row && n.state ? n.state.cues.find((x) => x.id === row.dataset.cue) : null;
     if (a === 'link') toggleLink(id);
+    else if (a === 'update') updatePlayer(id);
     else if (a === 'copy-from') {
       const others = nodes.filter((x) => x.id !== id && linked.has(x.id) && x.online);
       const k = n.state.cues.length;
@@ -556,6 +649,24 @@ function setNodes(list) {
 }
 
 window.center.on('nodes', setNodes);
+// This Command Center's own update state; it also tells the cards which version is the newest.
+async function setUpdate(u) {
+  selfUpdate = u;
+  latest = await window.center.latest();
+  render();
+}
+window.center.on('update', setUpdate);
+window.center.update().then(setUpdate);
+$('selfUpdateBtn').onclick = () => $('settingsBtn').click();
+$('updateAllBtn').onclick = async () => {
+  const list = updatable();
+  if (!confirm(`Update Deck Cue on ${list.length} computers now?\n\n${list.map((n) => n.name).join('\n')}\n\nEach one closes Deck Cue, installs the new version and opens it again. Computers with a show running are left alone.`)) return;
+  for (const n of list) await updatePlayer(n.id);
+};
+$('updateCheck').onclick = async () => { $('updateCheck').disabled = true; await window.center.updateCheck(); $('updateCheck').disabled = false; };
+$('updateNow').onclick = async () => { const u = await window.center.updateInstall(); if (u && u.error) notice(u.error); };
+$('updateCheckOn').onchange = (e) => window.center.updateSet({ check: e.target.checked });
+$('updateAuto').onchange = (e) => window.center.updateSet({ auto: e.target.checked });
 window.center.on('upload', (u) => {
   if (!uploads.has(u.id)) uploads.set(u.id, new Map());
   const map = uploads.get(u.id);

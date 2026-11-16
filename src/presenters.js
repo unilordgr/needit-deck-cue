@@ -79,10 +79,16 @@ function position(app) {
   return driver.position ? driver.position(app) : Promise.resolve(null);
 }
 
+// Is the deck of a live cue still open? true / false, or null when the app can't tell (then nothing is assumed).
+function alive(app, file) {
+  if (app === 'pdf') return Promise.resolve(null); // the PDF player tells us itself when its window closes
+  return driver.alive ? driver.alive(app, file) : Promise.resolve(null);
+}
+
 // Jump a running show to slide n (used by a backup to catch up). Resolves false when unsupported.
 function goto(app, n) {
   if (app === 'pdf') { pdfPlayer.goto(n); return Promise.resolve(true); }
   return driver.goto ? driver.goto(app, n) : Promise.resolve(false);
 }
 
-module.exports = { pdfPlayer, position, goto, APPS, SUPPORTED_EXT, isInstalled, installedApps, pptApp, appFor, needsAccessibility, fire, stop, nav, close };
+module.exports = { pdfPlayer, position, goto, alive, APPS, SUPPORTED_EXT, isInstalled, installedApps, pptApp, appFor, needsAccessibility, fire, stop, nav, close };

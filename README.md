@@ -69,6 +69,24 @@ The apps are free and are not yet signed with an Apple or Microsoft developer ce
 - **macOS:** unzip, move the app to *Applications* and open it. macOS says it can't check the app. Open **System Settings › Privacy & Security**, scroll down and press **Open Anyway**. You only do this once.
 - **Windows:** SmartScreen shows *Windows protected your PC*. Press **More info**, then **Run anyway**.
 
+## Updates
+
+Both apps look for a new version when they start. When one is out, a blue **Update** button appears at the top of the window.
+
+- **Update now** downloads the new version, checks it, installs it and opens the app again. It takes a few seconds once the download is done. It is refused while a presentation is live or Show mode is on, so an update never lands in the middle of a show.
+- **Install new versions automatically** (off unless you switch it on, in *Settings › About and updates*) downloads a new version in the background and installs it when you close the app. The next time you open it, it is up to date.
+- **From the Command Center:** each computer's card says when a newer Deck Cue is out, with an **Update** button; with several, the top bar has *Update N computers*. A show computer without internet gets the new version from the Command Center over the show network.
+- You can switch the check off in the same Settings page. *Check for updates* there looks right away.
+
+**What is checked before anything is installed.** Every release carries a list of its builds with their SHA-256, signed with a key that only the release build has. The apps hold the public half. A download, or a package passed along by a Command Center, is used only if the list's signature is good and the file matches the list.
+
+**How each build updates**
+- *Windows, installer:* the new installer runs without questions and starts the app again.
+- *Windows, portable:* the `.exe` is replaced where it is, so it keeps working from a USB stick.
+- *macOS:* the app is replaced where it is. If macOS started it straight from the Downloads folder, move it to *Applications* first. The apps are not signed by Apple yet, so after an update macOS asks once more for the Accessibility permission (*Settings › This computer* has the button).
+
+**Status:** on macOS a real update was run end to end (update now, automatic on closing, and from the Command Center to a computer without internet). On Windows the two install paths are run on the build machine with every release (the installer silently over itself, and the portable replace script), but the whole update has not been tried on a real PC yet.
+
 ## Quick start
 
 **One computer**
@@ -94,6 +112,7 @@ This is version 0.x: new, and not every combination has been run yet. **Rehearse
 | **Windows** (PowerPoint, WPS Office, PDF) | The builds are made and checked automatically; not yet tested on a real PC with PowerPoint or WPS |
 | **Command Center** | Tested with three copies of Deck Cue on one Mac; not yet tested between separate computers |
 | Sending a slideshow to a chosen second display | Not yet tested with a real second display |
+| **Updates** | Tested end to end on macOS; on Windows only the install steps are checked automatically |
 
 Found a problem? Please [open an issue](https://github.com/unilordgr/needit-deck-cue/issues) and say which system and presentation app you use.
 
@@ -443,7 +462,7 @@ To make the apps:
 
 Both apps come from the same code. The Command Center build uses `builder-center.json`, which marks the package as the Command Center; `src/index.js` then starts `src/center/` instead of the player.
 
-Windows builds can't be made on an Apple Silicon Mac, so GitHub Actions makes them (`.github/workflows/build.yml`). *Actions › Build › Run workflow* builds everything and keeps the files on the finished run. Pushing a `v*` tag also publishes them on the Releases page.
+Windows builds can't be made on an Apple Silicon Mac, so GitHub Actions makes them (`.github/workflows/build.yml`). *Actions › Build › Run workflow* builds everything and keeps the files on the finished run. Pushing a `v*` tag also publishes them on the Releases page, together with the signed update list (`update.json`, made by `scripts/make-update-list.js` with the `UPDATE_SIGNING_KEY` secret). A release without that list is not offered to the apps as an update.
 
 ## Using it
 
@@ -460,6 +479,8 @@ Windows builds can't be made on an Apple Silicon Mac, so GitHub Actions makes th
 **Per-cue settings:** label, file, app (auto / PowerPoint / Keynote), **Fullscreen** (Default / Start slideshow / Just open), start slide, **Output** (Default / Let PowerPoint choose / a specific display), shortcut (+ Global), color, notes.
 
 **Keys while Deck Cue is in front:** Space = GO, Esc = Stop all, ← / → = previous / next slide, B = Blackout.
+
+**Closed by hand:** if you close a presentation yourself, or quit PowerPoint, Keynote or WPS Office, Deck Cue notices within a few seconds and the cue is no longer shown as live. (Checked with WPS Office on macOS; the PowerPoint, Keynote and Windows checks are written but not yet run against the real apps.)
 
 ### Shortcuts: local vs global
 - A **local** shortcut works only while Deck Cue is the front window. Any key is allowed.
@@ -517,7 +538,9 @@ Copyright © 2026 needit Creative.
 - **Committers and reviewers:** [needit Creative](https://github.com/unilordgr). Changes from anyone else are reviewed before they are merged.
 - **Approvers:** [needit Creative](https://github.com/unilordgr). Every release is approved by hand before it is signed.
 
-**Privacy:** this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. The apps talk only to other copies of needit Deck Cue and needit Command Center, and to the remote controls you connect, on your own network. They have no accounts, no analytics and no update checks.
+**Privacy:** apart from the version check described next, this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. The apps talk only to other copies of needit Deck Cue and needit Command Center, and to the remote controls you connect, on your own network. They have no accounts and no analytics.
+
+**The version check:** when an app starts, and every six hours while it runs, it downloads a small list of the latest version from this project's GitHub Releases. Nothing about you, your computer or your shows is sent with it. You can switch it off in *Settings › About and updates*. A new version is downloaded only when you press Update, or when you have switched on automatic updates.
 
 **System settings:** Show mode silences notifications and keeps the computer awake while it is on, and puts the previous settings back when it turns off. On Windows, choosing an output for a PowerPoint cue sets PowerPoint's slide-show monitor. Both happen only when the operator asks for them, and both are described in this README.
 

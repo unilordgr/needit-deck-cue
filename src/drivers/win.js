@@ -128,6 +128,15 @@ if ($app -and $app.SlideShowWindows.Count -gt 0) {
   "{0}/{1}" -f $w.View.CurrentShowPosition, $w.Presentation.Slides.Count
 }`;
 
+// "open" while the deck is open (or any show is running), "gone" when the app has quit or the deck was closed.
+const ALIVE = `
+$app = Get-App $progIds
+if (-not $app) { 'gone'; return }
+if ($app.SlideShowWindows.Count -gt 0) { 'open'; return }
+$name = [IO.Path]::GetFileName($env:DC_FILE)
+foreach ($p in @($app.Presentations)) { if ($p.FullName -eq $env:DC_FILE -or $p.Name -eq $name) { 'open'; return } }
+'gone'`;
+
 const GOTO = `
 $app = Get-App $progIds
 if (-not $app -or $app.SlideShowWindows.Count -eq 0) { 'no show'; return }
@@ -178,6 +187,14 @@ async function position(app) {
   return m && Number(m[1]) > 0 ? { slide: Number(m[1]), slides: Number(m[2]) } : null;
 }
 
+// true: still open. false: closed by hand or the app has quit. null: cannot tell.
+async function alive(app, file) {
+  if (!APPS[app] || !isInstalled(app)) return null;
+  const quoted = String(file).replace(/'/g, "''");
+  const out = await hostRun(`$env:DC_PROGIDS = '${APPS[app].progIds.join(',')}'\n$progIds = $env:DC_PROGIDS -split ','\n$env:DC_FILE = '${quoted}'\n${ALIVE}`);
+  return /open\s*$/.test(out) ? true : /gone\s*$/.test(out) ? false : null;
+}
+
 function goto(app, n) {
   if (!APPS[app]) return Promise.resolve(false);
   return ps(GOTO, env(app, { DC_SLIDE: String(n) }), 10000).then(() => true, () => false);
@@ -223,6 +240,6 @@ function close(app, file) {
   return ps(CLOSE, env(app, { DC_FILE: file }), 15000);
 }
 
-module.exports = { APPS, PPT_APP_PREFERENCE, isInstalled, needsAccessibility, fire, stop, nav, close, position, goto };
+module.exports = { APPS, PPT_APP_PREFERENCE, isInstalled, needsAccessibility, fire, stop, nav, close, position, goto, alive };
 // For scripts/check-win-driver.js (CI on a Windows runner).
-module.exports._test = { ps, hostRun, scripts: { FIRE, STOP, NAV, CLOSE, MONITORS, POSITION, GOTO }, PRELUDE };
+module.exports._test = { ps, hostRun, scripts: { FIRE, STOP, NAV, CLOSE, MONITORS, POSITION, GOTO, ALIVE }, PRELUDE };

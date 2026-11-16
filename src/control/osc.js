@@ -18,6 +18,7 @@ function decodeMessage(buf, off, end, out) {
     while (off + 4 <= end) {
       const size = buf.readInt32BE(off);
       off += 4;
+      if (size <= 0 || off + size > end) return; // a broken bundle: stop here instead of looping
       decodeMessage(buf, off, off + size, out);
       off += size;
     }

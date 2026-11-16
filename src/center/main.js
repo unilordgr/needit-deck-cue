@@ -9,6 +9,7 @@ const os = require('os');
 const http = require('http');
 const WebSocket = require('ws');
 const { listenForBeacons } = require('../control/beacon');
+const { createUpdater } = require('../update');
 
 const IS_MAC = process.platform === 'darwin';
 // In development both apps share one Electron, so give the Command Center its own settings folder.
@@ -17,7 +18,9 @@ app.setName(APP_NAME);
 
 const PRESENTATION_EXT = ['ppt', 'pptx', 'pptm', 'pps', 'ppsx', 'ppsm', 'pot', 'potx', 'dps', 'key', 'pdf'];
 const prefsFile = () => path.join(app.getPath('userData'), 'center.json');
-let prefs = { key: '', manual: [], linked: [] }; // manual: [{ host, port }] added by address; linked: player ids
+let prefs = { key: '', manual: [], linked: [], update: { check: true, auto: false, lastVersion: '' } }; // manual: [{ host, port }] added by address; linked: player ids
+let updater = null;
+const updating = new Map(); // player id -> { stage, percent } while this Command Center is updating that player
 let win = null;
 const nodes = new Map(); // player id -> node
 const myName = os.hostname().replace(/\.local$/, '');
@@ -42,7 +45,7 @@ function request(node, method, urlPath, body, timeout = 8000) {
       res.on('end', () => {
         let json = {};
         try { json = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { /* not JSON */ }
-        resolve(res.statusCode >= 200 && res.statusCode < 300 ? { ok: true, ...json } : { ok: false, error: json.error || `The computer answered ${res.statusCode}` });
+        resolve(res.statusCode >= 200 && res.statusCode < 300 ? { ok: true, ...json } : { ...json, ok: false, error: json.error || `The computer answered ${res.statusCode}` });
       });
     });
     req.on('timeout', () => req.destroy(new Error('No answer')));
@@ -74,6 +77,68 @@ function upload(node, file, onProgress) {
     stream.on('error', (e) => { req.destroy(); resolve({ ok: false, error: e.message }); });
     stream.pipe(req);
   });
+}
+
+// Pass an update package on to a player. The player checks the signed list and the file itself before using them.
+function uploadUpdate(node, pkg, asset, onProgress) {
+  return new Promise((resolve) => {
+    const req = http.request({
+      host: node.address, port: node.port, method: 'PUT', path: `/api/update/package/${encodeURIComponent(asset)}`,
+      headers: {
+        'Content-Length': pkg.size, 'X-Update-List': pkg.raw.toString('base64'), 'X-Update-Signature': pkg.signature,
+        ...(prefs.key ? { 'X-DeckCue-Key': prefs.key } : {}),
+      },
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        let json = {};
+        try { json = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { /* not JSON */ }
+        resolve(res.statusCode === 200 ? { ok: true, ...json } : { ...json, ok: false, error: json.error || `The computer answered ${res.statusCode}` });
+      });
+    });
+    req.on('error', (e) => resolve({ ok: false, error: e.message }));
+    let sent = 0;
+    const stream = fs.createReadStream(pkg.file);
+    stream.on('data', (c) => { sent += c.length; onProgress(Math.floor((sent / pkg.size) * 100)); });
+    stream.on('error', (e) => { req.destroy(); resolve({ ok: false, error: e.message }); });
+    stream.pipe(req);
+  });
+}
+
+// Update one player. It fetches the new version itself when it can; when it has no internet, this computer
+// downloads the build once and sends it over the show network.
+async function updateNode(id) {
+  const node = nodes.get(id);
+  if (!node || !node.online) return { ok: false, error: 'That computer is not connected.' };
+  if (updating.has(id)) return { ok: true };
+  let last = -10;
+  const note = (stage, percent = 0) => {
+    if (updating.get(id) && updating.get(id).stage === stage && percent < last + 3 && percent < 100) return;
+    last = percent;
+    updating.set(id, { stage, percent });
+    pushNodes();
+  };
+  try {
+    note('asking');
+    let r = await request(node, 'POST', '/api/update/install', undefined, 30000);
+    if (!r.ok && r.need === 'package' && r.asset) {
+      if (!updater.latest()) await updater.check({ manual: true });
+      if (!updater.latest()) return { ok: false, error: `Neither this computer nor ${node.name} can reach the download server.` };
+      last = -10; note('downloading', 0);
+      const pkg = await updater.packageFor(r.asset, (p) => note('downloading', p));
+      last = -10; note('sending', 0);
+      const up = await uploadUpdate(node, pkg, r.asset, (p) => note('sending', p));
+      if (!up.ok) return up;
+      r = await request(node, 'POST', '/api/update/install', undefined, 30000);
+    }
+    return r;
+  } catch (e) {
+    return { ok: false, error: e.message };
+  } finally {
+    updating.delete(id);
+    pushNodes();
+  }
 }
 
 function download(node, urlPath, dest) {
@@ -112,7 +177,7 @@ function snapshot() {
   return [...nodes.values()].sort((a, b) => a.name.localeCompare(b.name)).map((n) => ({
     id: n.id, name: n.name, platform: n.platform, version: n.version, address: n.address, port: n.port,
     online: n.online, manage: n.manage, keyRequired: n.keyRequired, keyOk: n.keyOk, manual: n.manual, state: n.state,
-    clockOffset: n.clockOffset || 0,
+    clockOffset: n.clockOffset || 0, updating: updating.get(n.id) || null,
   }));
 }
 
@@ -299,6 +364,13 @@ function setupIpc() {
     const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Presentations', extensions: PRESENTATION_EXT }] });
     return r.canceled ? [] : r.filePaths;
   });
+  ipcMain.handle('update:get', () => updater.state());
+  ipcMain.handle('update:latest', () => updater.latest());
+  ipcMain.handle('update:set', (_e, patch) => updater.setSettings(patch || {}));
+  ipcMain.handle('update:check', () => updater.check({ manual: true }));
+  ipcMain.handle('update:install', () => updater.install().catch((e) => ({ ...updater.state(), error: e.message })));
+  ipcMain.handle('update:seen', () => updater.seen());
+  ipcMain.handle('node:update', (_e, id) => updateNode(String(id)));
   ipcMain.handle('prefs:get', () => ({ key: prefs.key, name: myName, linked: prefs.linked }));
   ipcMain.handle('prefs:set', async (_e, patch) => {
     if ('linked' in patch) prefs.linked = Array.isArray(patch.linked) ? patch.linked.map(String) : [];
@@ -328,6 +400,16 @@ app.whenReady().then(() => {
   loadPrefs();
   setupIpc();
   require('../about').setupAbout(APP_NAME);
+  updater = createUpdater({
+    prefix: 'needit-Command-Center',
+    getSettings: () => prefs.update || {},
+    saveSettings: (patch) => { prefs.update = { ...(prefs.update || {}), ...patch }; savePrefs(); },
+    // Not while it is sending files or updating a show computer.
+    isBusy: () => updating.size > 0,
+    busyReason: () => 'A show computer is being updated. Wait until that has finished.',
+    onChange: (u) => { if (win && !win.isDestroyed()) win.webContents.send('update', u); },
+  });
+  updater.start();
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(IS_MAC ? [{ role: 'appMenu' }] : []),
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
@@ -350,4 +432,5 @@ app.whenReady().then(() => {
   setInterval(prune, 3000);
 });
 
+app.on('will-quit', () => { if (updater) updater.onQuit(); });
 app.on('window-all-closed', () => app.quit());

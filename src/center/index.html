@@ -11,6 +11,8 @@
     <div class="brand"><span class="brand-co">needit</span> <span class="brand-name">Command Center</span></div>
     <div id="summary" class="summary"></div>
     <div class="spacer"></div>
+    <button id="updateAllBtn" class="btn tool update-btn" hidden></button>
+    <button id="selfUpdateBtn" class="btn tool update-btn" hidden></button>
     <button id="addBtn" class="btn tool">Add a computer</button>
     <button id="settingsBtn" class="btn tool">Settings</button>
   </header>
@@ -72,6 +74,18 @@
         <button class="btn" data-about="site">needitcreative.com</button>
         <button class="btn" data-about="repo">Downloads and help</button>
         <button class="btn" data-about="license">License</button>
+      </div>
+      <div class="update-box">
+        <h3>Updates</h3>
+        <div class="update-line" id="updateLine">Not checked yet.</div>
+        <div class="update-note" id="updateNote" hidden></div>
+        <div class="update-actions">
+          <button class="btn go" id="updateNow" hidden>Update now</button>
+          <button class="btn" id="updateCheck">Check for updates</button>
+        </div>
+        <label class="check"><input type="checkbox" id="updateCheckOn"><span>Look for a new version when the Command Center starts</span></label>
+        <label class="check"><input type="checkbox" id="updateAuto"><span>Install new versions automatically, when the Command Center is closed</span></label>
+        <p class="muted">The show computers are updated from their own cards: each one shows an Update button when a new version is out.</p>
       </div>
     </div>
   </div>

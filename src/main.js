@@ -25,6 +25,7 @@ const { createVersionWatcher } = require('./versions');
 const { createThumbnailer } = require('./thumbs');
 const timerScreen = require('./timerScreen');
 const { createManage } = require('./control/manage');
+const { createUpdater } = require('./update');
 const { createBeacon } = require('./control/beacon');
 
 let win = null;
@@ -46,6 +47,8 @@ const DEFAULT_CENTER = { accept: false, folder: '', key: '', name: '', id: '' };
 // Files dropped into the app are copied into the show folder (prefs.center.folder), so the USB stick they
 // came from can be removed and there is one place that holds the latest version of every file.
 const DEFAULT_FILES = { copy: true };
+// Updates: look for a new version at start (on unless switched off); install by itself only if the operator asks for that.
+const DEFAULT_UPDATE = { check: true, auto: false, lastVersion: '' };
 const DEFAULT_MIDI = { enabled: false, input: 'all', channel: 0, notes: true, noteBase: 60, programChange: true, msc: true, map: {} };
 let prefs = { control: { ...DEFAULT_CONTROL }, sync: { ...DEFAULT_SYNC }, showMode: { ...DEFAULT_SHOWMODE }, presenter: { ...DEFAULT_PRESENTER }, midi: { ...DEFAULT_MIDI }, center: { ...DEFAULT_CENTER }, files: { ...DEFAULT_FILES } };
 let beacon = null;
@@ -70,8 +73,10 @@ const state = {
   versions: {}, // cueId -> { changedAt, newer: { path, name, mtime } } (see versions.js)
   // Timer on the output: forced = the Full screen button; preview = show the overlay while its editor is open.
   timerScreen: { forced: false, forcedContent: 'timer', preview: false, mode: 'off', content: 'timer', display: null, note: null },
+  update: null, // what the updater knows (see update.js)
 };
 const blackoutWins = new Map();
+let updater = null;
 
 const userFile = (name) => path.join(app.getPath('userData'), name);
 
@@ -151,6 +156,7 @@ function loadInitial() {
     midi: { ...DEFAULT_MIDI, ...(saved.midi || {}) },
     center: { ...DEFAULT_CENTER, ...(saved.center || {}) },
     files: { ...DEFAULT_FILES, ...(saved.files || {}) },
+    update: { ...DEFAULT_UPDATE, ...(saved.update || {}) },
   };
   if (!prefs.center.id) prefs.center.id = crypto.randomUUID();
   if (!prefs.center.folder) prefs.center.folder = path.join(os.homedir(), 'needit Deck Cue');
@@ -330,6 +336,31 @@ async function pollPosition() {
     }
   } finally {
     positionBusy = false;
+  }
+}
+
+// ---------- closed by hand ----------
+// When the operator closes a presentation themselves (or quits PowerPoint / WPS / Keynote), its cue is no
+// longer live. Asked every two seconds; it takes two "gone" answers in a row, and "cannot tell" changes nothing.
+let aliveBusy = false;
+let goneCount = 0;
+async function pollAlive() {
+  const live = state.live;
+  if (!live || live.app === 'pdf') { goneCount = 0; return; }
+  if (aliveBusy || state.busyCueId || Date.now() - (live.since || 0) < 6000) return;
+  aliveBusy = true;
+  try {
+    const answer = await presenters.alive(live.app, live.file).catch(() => null);
+    if (state.live !== live || state.busyCueId) { goneCount = 0; return; }
+    goneCount = answer === false ? goneCount + 1 : 0;
+    if (goneCount < 2) return;
+    goneCount = 0;
+    const cue = show.cues.find((c) => c.id === live.cueId);
+    state.live = null; state.liveCueId = null; state.liveDetail = null; state.liveSlide = null; state.liveSlides = null;
+    registerShortcuts();
+    setMessage(`${cue ? `“${cueName(cue)}”` : 'The presentation'} was closed, so it is no longer live.`, 'info');
+  } finally {
+    aliveBusy = false;
   }
 }
 
@@ -602,7 +633,14 @@ function playerName() {
 }
 
 function playerInfo() {
-  return { app: APP_NAME, id: prefs.center.id, name: playerName(), platform: process.platform, version: app.getVersion(), show: show.showName };
+  return { app: APP_NAME, id: prefs.center.id, name: playerName(), platform: process.platform, version: app.getVersion(), show: show.showName, update: updateSummary() };
+}
+
+// What a Command Center needs to know about this computer's version.
+function updateSummary() {
+  const u = updater ? updater.state() : null;
+  if (!u) return null;
+  return { current: u.current, available: u.available, status: u.status, percent: u.percent, asset: u.asset, blocked: u.blocked, canInstall: u.canInstall, busy: u.busy, busyWhy: u.busyWhy, error: u.error };
 }
 
 function showChanged() {
@@ -614,6 +652,29 @@ function showChanged() {
 const CUE_FIELDS = ['label', 'autoSlideshow', 'startSlide', 'duration', 'notes', 'color', 'output', 'presenterControl'];
 const manageActions = {
   info: playerInfo,
+  // A Command Center asked this computer to update. It answers at once; the progress shows in the state.
+  async updateInstall() {
+    let u = updater.state();
+    if (u.blocked) throw Object.assign(new Error(u.blocked), { code: 409 });
+    if (u.busy) throw Object.assign(new Error(u.busyWhy), { code: 409 });
+    if (!u.canInstall) {
+      // Look for it here first. A show computer without internet says so, and the Command Center sends the package.
+      u = await updater.check({ manual: true });
+      if (!u.available || u.error) throw Object.assign(new Error(u.available ? u.error : 'This computer could not find the update by itself.'), { code: 409, extra: { need: 'package', asset: u.asset } });
+    }
+    updater.install().catch(() => {});
+    return { update: updateSummary() };
+  },
+  updateAsset: () => (updater ? updater.state().asset : null),
+  updateTempFile: () => {
+    const folder = path.join(app.getPath('userData'), 'updates');
+    fs.mkdirSync(folder, { recursive: true });
+    return path.join(folder, `incoming-${process.pid}-${Date.now()}.part`);
+  },
+  async updateReceive(pkg) {
+    await updater.receive(pkg);
+    return { update: updateSummary() };
+  },
   addCue({ file, index, label, autoSlideshow, duplicate }) {
     // A file that a cue already uses was just replaced in place: it is the new version of that cue,
     // not another cue. (duplicate: true is for copying a whole list, which may hold a file twice.)
@@ -809,7 +870,7 @@ async function fireCue(id) {
     }
     const result = await presenters.fire(appName, { file, startSlide: Number(cue.startSlide) || 1, auto, bounds: display ? display.bounds : null, program });
     if (closePrev && !closeFirst) await presenters.close(prev.app, prev.file).catch(() => {});
-    state.live = { cueId: id, app: appName, file };
+    state.live = { cueId: id, app: appName, file, since: Date.now() };
     if (versions) versions.clearChanged(id); // the freshly loaded file is the current one
     const minutes = Number(cue.duration) || 0;
     if (minutes > 0 && show.settings.timerAutoStart !== false) {
@@ -1100,7 +1161,8 @@ function remoteState() {
       mode: state.timerScreen.mode, content: state.timerScreen.content, forced: !!state.timerScreen.forced,
       idle: show.settings.timerScreen.idle, livePip: !!show.settings.timerScreen.livePip,
     },
-    player: { id: prefs.center.id, name: playerName(), platform: process.platform },
+    player: { id: prefs.center.id, name: playerName(), platform: process.platform, version: app.getVersion() },
+    update: updateSummary(),
     timer: { duration: state.timer.duration, remaining: timerRemaining(), running: state.timer.running, endsAt: state.timer.endsAt },
     timerPresets: show.settings.timerPresets,
     stageMessage: state.stageMessage,
@@ -1235,6 +1297,11 @@ function setupIpc() {
     return r.canceled ? null : r.filePaths[0];
   });
   ipcMain.handle('files:reveal', (_e, p) => shell.showItemInFolder(p));
+  ipcMain.handle('update:get', () => updater.state());
+  ipcMain.handle('update:set', (_e, patch) => updater.setSettings(patch || {}));
+  ipcMain.handle('update:check', () => updater.check({ manual: true }));
+  ipcMain.handle('update:install', () => updater.install().catch((e) => ({ ...updater.state(), error: e.message })));
+  ipcMain.handle('update:seen', () => updater.seen());
   ipcMain.handle('files:import', (_e, src, overwrite) => importFile(src, !!overwrite).catch((e) => ({ error: e.message })));
   ipcMain.handle('files:retire', (_e, oldPath, newPath) => retireFile(oldPath, newPath));
   ipcMain.handle('files:prefs', (_e, patch) => {
@@ -1336,6 +1403,17 @@ app.whenReady().then(() => {
     if (state.live && state.live.app === 'pdf') { state.live = null; state.liveCueId = null; state.liveDetail = null; registerShortcuts(); broadcast(); }
   });
   loadInitial();
+  updater = createUpdater({
+    prefix: 'needit-Deck-Cue',
+    getSettings: () => prefs.update || DEFAULT_UPDATE,
+    saveSettings: (patch) => { prefs.update = { ...prefs.update, ...patch }; autosave(); },
+    // Never in the middle of a show.
+    isBusy: () => !!state.liveCueId || !!state.busyCueId || showmode.isActive(),
+    busyReason: () => (showmode.isActive() ? 'Show mode is on. Turn it off, then update.' : 'A presentation is live. Stop it, then update.'),
+    onChange: (u) => { state.update = u; broadcast(); },
+  });
+  state.update = updater.state();
+  updater.start();
   follower = createFollower({
     onEvent: onMainEvent,
     onState: onMainState,
@@ -1395,6 +1473,7 @@ app.whenReady().then(() => {
   versions = createVersionWatcher({ getCues: () => show.cues, onChange: onVersions });
   versions.start();
   setInterval(pollPosition, 1000);
+  setInterval(pollAlive, 2000);
   // While a backup is connected, re-send the state every few seconds so it can correct any drift
   // (e.g. its own clicker moved a slide) even when nothing changes on the main.
   setInterval(() => { if (followers.length && control) control.update(); }, 3000);
@@ -1404,7 +1483,7 @@ app.whenReady().then(() => {
   screen.on('display-metrics-changed', onDisplays);
 });
 
-app.on('will-quit', () => { globalShortcut.unregisterAll(); hideBlack(); preflight.closeProbe(); timerScreen.close(); if (beacon) beacon.stop(); if (control) control.stop(); if (follower) follower.stop(); });
+app.on('will-quit', () => { if (updater) updater.onQuit(); globalShortcut.unregisterAll(); hideBlack(); preflight.closeProbe(); timerScreen.close(); if (beacon) beacon.stop(); if (control) control.stop(); if (follower) follower.stop(); });
 app.on('window-all-closed', () => app.quit());
 // Turn show mode off before quitting so notification settings are restored.
 app.on('before-quit', async (e) => {

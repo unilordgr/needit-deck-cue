@@ -144,7 +144,17 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     });
   }
 
+  // A request that cannot be read (a stray % in a cue name, a broken address) gets an answer, never an exception:
+  // an uncaught error in the main process would stop the whole app behind an error box.
   function onRequest(req, res) {
+    try {
+      handleRequest(req, res);
+    } catch (e) {
+      try { send(res, e instanceof URIError || e instanceof TypeError ? 400 : 500, { ok: false, error: 'That request could not be read.' }); } catch { res.destroy(); }
+    }
+  }
+
+  function handleRequest(req, res) {
     const url = new URL(req.url, 'http://localhost');
     if (req.method === 'GET' && STATIC[url.pathname]) return sendFile(res, ...STATIC[url.pathname]);
     if (manage && manage.handle(req, res, url, send)) return; // Command Center: files and cue management
@@ -266,8 +276,9 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     httpServer = http.createServer(onRequest);
     wss = new WebSocketServer({ noServer: true });
     httpServer.on('upgrade', (req, socket, head) => {
-      if (new URL(req.url, 'http://localhost').pathname !== '/api/ws') return socket.destroy();
-      const url = new URL(req.url, 'http://localhost');
+      let url;
+      try { url = new URL(req.url, 'http://localhost'); } catch { return socket.destroy(); }
+      if (url.pathname !== '/api/ws') return socket.destroy();
       wss.handleUpgrade(req, socket, head, (ws) => {
         if (url.searchParams.get('role') === 'backup') {
           ws.backupName = (url.searchParams.get('name') || req.socket.remoteAddress || 'backup').slice(0, 64);

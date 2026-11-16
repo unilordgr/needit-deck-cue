@@ -354,6 +354,15 @@ function setupCenter() {
   document.querySelector('.about-actions').addEventListener('click', (e) => {
     if (e.target.dataset.about) api.aboutOpen(e.target.dataset.about);
   });
+  // Updates
+  $('updateBtn').onclick = () => openSettingsPane('about');
+  $('updateCheck').onclick = async () => { $('updateCheck').disabled = true; await api.updateCheck(); $('updateCheck').disabled = false; };
+  $('updateNow').onclick = async () => {
+    const u = await api.updateInstall();
+    if (u && u.error) flash(u.error, 'warn');
+  };
+  $('updateCheckOn').onchange = (e) => api.updateSet({ check: e.target.checked });
+  $('updateAuto').onchange = (e) => api.updateSet({ auto: e.target.checked });
 }
 
 // ---------- timer on the output screen ----------
@@ -705,6 +714,7 @@ function renderGrid() {
 }
 
 function renderStatus() {
+  renderUpdate();
   const live = runtime.liveCueId && cueById(runtime.liveCueId);
   const armed = runtime.armedCueId && cueById(runtime.armedCueId);
   const idx = (c) => show.cues.indexOf(c) + 1;
@@ -798,6 +808,53 @@ function renderSettings() {
     <div class="env-note">The first time a cue fires, macOS asks to let Deck Cue control your presentation app. Click OK.</div>` : ''}`;
   const g = $('grantAx');
   if (g) g.onclick = () => api.requestAccessibility();
+}
+
+// ---------- updates ----------
+// The button in the top bar is the notice everyone sees, with or without a Command Center.
+let saidUpdated = false;
+function renderUpdate() {
+  const u = runtime.update;
+  const btn = $('updateBtn');
+  if (!u) { btn.hidden = true; return; }
+  const v = u.available;
+  const show = ['available', 'downloading', 'ready', 'installing'].includes(u.status) && !!v;
+  btn.hidden = !show;
+  btn.textContent = u.status === 'downloading' ? `Downloading ${u.percent}%` : u.status === 'installing' ? 'Updating…' : u.status === 'ready' ? `Update ${v} ready` : `Update ${v}`;
+  btn.classList.toggle('ready', u.status === 'ready');
+
+  const line = {
+    idle: 'Not checked yet.',
+    checking: 'Looking for a new version…',
+    current: `You have the latest version (${u.current}).`,
+    available: `Version ${v} is available. You have ${u.current}.`,
+    downloading: `Downloading version ${v}: ${u.percent}%`,
+    ready: `Version ${v} is downloaded.${u.willInstallOnQuit ? ' It installs when you close Deck Cue.' : ''}`,
+    installing: `Installing version ${v}. Deck Cue starts again in a moment.`,
+  }[u.status] || '';
+  $('updateLine').textContent = line;
+  const note = u.error || (show && u.blocked) || (show && u.busyWhy) || '';
+  $('updateNote').hidden = !note;
+  $('updateNote').textContent = note;
+  const now = $('updateNow');
+  now.hidden = !(show && !u.blocked && u.status !== 'installing');
+  now.disabled = u.busy || u.status === 'downloading';
+  now.textContent = u.status === 'downloading' ? 'Downloading…' : 'Update now';
+  if (document.activeElement !== $('updateCheckOn')) $('updateCheckOn').checked = u.settings.check;
+  if (document.activeElement !== $('updateAuto')) $('updateAuto').checked = u.settings.auto;
+  $('updateAuto').disabled = !!u.blocked || !u.asset;
+  $('updateMacNote').hidden = !IS_MAC;
+  if (u.updatedFrom && !saidUpdated) {
+    saidUpdated = true;
+    flash(`Updated to version ${u.current}.${IS_MAC && !env.accessibility ? ' macOS needs the Accessibility permission again: Settings › This computer.' : ''}`, 'info');
+    api.updateSeen();
+  }
+}
+
+function openSettingsPane(pane) {
+  $('settingsBtn').click();
+  const b = document.querySelector(`.set-nav [data-pane="${pane}"]`);
+  if (b) b.click();
 }
 
 // ---------- main / backup ----------

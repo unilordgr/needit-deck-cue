@@ -190,3 +190,15 @@ body.mac .topbar { padding-left: 88px; }
 .about-text { display: flex; flex-direction: column; gap: 4px; font-size: 18px; }
 .about-name { font: 800 26px/1.1 var(--num, var(--ui)); }
 .about-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+
+/* ---------- Updates ---------- */
+.btn.tool.update-btn { background: var(--signal-deep); border-color: var(--signal); color: #cfe0ff; font-weight: 700; }
+.pc-update { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--signal-deep); color: #cfe0ff; font-size: 16px; line-height: 1.35; border-bottom: 1px solid var(--line); }
+.pc-update span { flex: 1; min-width: 0; }
+.pc-update .btn { flex: none; }
+.update-box { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
+.update-box h3 { margin: 0; font: 800 22px/1 var(--num, var(--ui)); }
+.update-line { font-size: 18px; }
+.update-note { color: #ffd66b; font-size: 16px; line-height: 1.4; }
+.update-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.update-box label.check { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 17px; }

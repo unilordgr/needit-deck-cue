@@ -11,6 +11,7 @@
     <div class="brand"><span class="brand-co">needit</span> <span class="brand-name">Deck Cue</span></div>
     <input id="showName" class="show-name" spellcheck="false" title="Show name" aria-label="Show name">
     <div class="spacer"></div>
+    <button id="updateBtn" class="btn tool update-btn" hidden title="A new version of needit Deck Cue"></button>
     <button id="preflightBtn" class="btn tool preflight-btn" title="Check every cue for missing files, fonts, media and output problems">Preflight</button>
     <button id="showModeBtn" class="btn tool showmode-btn" title="Show-machine mode: no sleep, quiet notifications, readiness checks">Show mode</button>
     <button id="lockBtn" class="btn tool" title="Lock editing (cues can still be fired)">Unlocked</button>
@@ -157,7 +158,7 @@
         <button data-pane="remote">Stream Deck and remote</button>
         <button data-pane="midi">MIDI</button>
         <button data-pane="system">This computer</button>
-        <button data-pane="about">About</button>
+        <button data-pane="about">About and updates</button>
         <div class="spacer"></div>
         <button id="settingsClose" class="btn">Done</button>
       </nav>
@@ -218,7 +219,7 @@
         </section>
 
         <section data-pane="about" hidden>
-          <h3>About</h3>
+          <h3>About and updates</h3>
           <div class="about">
             <img src="icon.png" alt="" width="112" height="112">
             <div class="about-text">
@@ -231,6 +232,18 @@
             <button class="btn" data-about="site">needitcreative.com</button>
             <button class="btn" data-about="repo">Downloads and help</button>
             <button class="btn" data-about="license">License</button>
+          </div>
+          <div class="update-box">
+            <h4>Updates</h4>
+            <div class="update-line" id="updateLine">Not checked yet.</div>
+            <div class="update-note" id="updateNote" hidden></div>
+            <div class="update-actions">
+              <button class="btn go" id="updateNow" hidden>Update now</button>
+              <button class="btn" id="updateCheck">Check for updates</button>
+            </div>
+            <label class="toggle"><input type="checkbox" id="updateCheckOn"><span>Look for a new version when Deck Cue starts</span></label>
+            <label class="toggle"><input type="checkbox" id="updateAuto"><span>Install new versions automatically, when Deck Cue is closed</span></label>
+            <p class="update-small" id="updateMacNote" hidden>After an update, macOS asks once more for the Accessibility permission. Open "This computer" to allow it again.</p>
           </div>
         </section>
       </div>

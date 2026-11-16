@@ -17,10 +17,26 @@ jobs:
       - run: npm ci
       - name: Check Windows driver scripts
         run: node scripts/check-win-driver.js
+      - name: Check the update helper (portable build)
+        run: node scripts/check-update-scripts.js
       - name: Build installer and portable exe
         run: npx electron-builder --win --x64 --publish never
       - name: Build the Command Center
         run: npx electron-builder --win --x64 --config builder-center.json --publish never
+      # The way the app updates an installed copy: the installer run silently, twice (fresh, then over itself).
+      - name: Check that the installer installs and updates without questions
+        shell: pwsh
+        run: |
+          $setup = (Resolve-Path 'dist/needit-Deck-Cue-Setup.exe').Path
+          $p = Start-Process -FilePath $setup -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "silent install ended with $($p.ExitCode)" }
+          $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs", "$env:ProgramFiles" -Recurse -Filter 'needit Deck Cue.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { throw 'the app was not installed' }
+          "installed at $($exe.FullName)"
+          $p = Start-Process -FilePath $setup -ArgumentList '/S', '--updated' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "silent update ended with $($p.ExitCode)" }
+          if (-not (Test-Path $exe.FullName)) { throw 'the app is gone after the update' }
+          'installer: silent install and silent update ok'
       - uses: actions/upload-artifact@v4
         with:
           name: needit-Deck-Cue-windows
@@ -41,6 +57,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Check the update helper (app swap)
+        run: node scripts/check-update-scripts.js
       - name: Build app (ad-hoc signed)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -91,6 +109,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -99,9 +121,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         run: |
           # Fixed file names, so the download buttons in the README always point at the latest release.
           mv artifacts/needit-deckcue-*.tgz artifacts/needit-deckcue-companion.tgz
+          # The signed list the apps check before they install an update (see src/update.js).
+          node scripts/make-update-list.js artifacts "${TAG#v}"
           ls -la artifacts
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "needit Deck Cue and Command Center $TAG" --notes "Downloads for Windows and macOS (Apple Silicon), plus the Bitfocus Companion module. How to open the apps the first time: https://github.com/$GITHUB_REPOSITORY#opening-the-apps-the-first-time - Code signing policy: https://github.com/$GITHUB_REPOSITORY#code-signing-policy"
           gh release upload "$TAG" artifacts/* --repo "$GITHUB_REPOSITORY" --clobber

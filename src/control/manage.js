@@ -13,11 +13,15 @@
 //   GET  /api/cue/<ref>/download           the cue's file, to copy this list to another computer
 //   POST /api/timerscreen/config           { idle, livePip, title, showClock }
 //   POST /api/timer/presets                { presets: [{ name, minutes }] }   the saved timers
+//   POST /api/update/install               update this computer now (refused while a show runs); answers at once
+//   PUT  /api/update/package/<file>        body = the build; headers X-Update-List (base64 of update.json) and
+//                                          X-Update-Signature. Only used when the signature and the file check out.
 const fs = require('fs');
 const path = require('path');
 
 const MAX_JSON = 1024 * 1024;
 const MAX_FILE = 32 * 1024 * 1024 * 1024;
+const MAX_UPDATE = 1024 * 1024 * 1024;
 
 function fail(code, message) {
   return Object.assign(new Error(message), { code });
@@ -80,6 +84,21 @@ function createManage({ getConfig, extensions, actions }) {
     });
   }
 
+  // An update package from a Command Center goes to a temporary file first; update.js decides whether to trust it.
+  function saveUpdate(req, target) {
+    return new Promise((resolve, reject) => {
+      const out = fs.createWriteStream(target);
+      let size = 0;
+      const abort = (err) => { out.destroy(); fs.rm(target, { force: true }, () => {}); reject(err); };
+      req.on('data', (c) => { size += c.length; if (size > MAX_UPDATE) { req.destroy(); abort(fail(413, 'Update package too large')); } });
+      req.on('error', abort);
+      req.on('aborted', () => abort(fail(400, 'Upload interrupted')));
+      out.on('error', (e) => abort(fail(500, `Could not write the update: ${e.message}`)));
+      out.on('finish', () => resolve(target));
+      req.pipe(out);
+    });
+  }
+
   // Returns true when the request was one of ours (and has been answered).
   function handle(req, res, url, send) {
     const parts = url.pathname.replace(/\/+$/, '').split('/').filter(Boolean);
@@ -99,11 +118,13 @@ function createManage({ getConfig, extensions, actions }) {
     const isCueEdit = req.method === 'POST' && a === 'cue' && b && ['file', 'update', 'move', 'delete'].includes(c);
     const isTimerCfg = req.method === 'POST' && a === 'timerscreen' && b === 'config' && !c;
     const isPresets = req.method === 'POST' && a === 'timer' && b === 'presets' && !c;
-    if (!isFile && !isCueAdd && !isCueEdit && !isTimerCfg && !isPresets && !isClear && !isDownload) return false;
+    const isUpdateInstall = req.method === 'POST' && a === 'update' && b === 'install' && !c;
+    const isUpdatePackage = req.method === 'PUT' && a === 'update' && b === 'package' && c && parts.length === 4;
+    if (!isFile && !isCueAdd && !isCueEdit && !isTimerCfg && !isPresets && !isClear && !isDownload && !isUpdateInstall && !isUpdatePackage) return false;
 
     const answer = (work) => {
       Promise.resolve().then(work).then((r) => send(res, 200, { ok: true, ...(r || {}) }))
-        .catch((e) => send(res, e.code && e.code >= 400 && e.code < 600 ? e.code : 400, { ok: false, error: e.message }));
+        .catch((e) => send(res, e.code && e.code >= 400 && e.code < 600 ? e.code : 400, { ok: false, error: e.message, ...(e.extra || {}) }));
     };
     if (!cfg.accept) { req.resume(); send(res, 403, { ok: false, error: 'This computer does not accept a Command Center. Turn it on in its Settings.' }); return true; }
     if (!keyOk) { req.resume(); send(res, 401, { ok: false, error: 'Wrong network key.' }); return true; }
@@ -115,6 +136,20 @@ function createManage({ getConfig, extensions, actions }) {
         res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': st.size, 'X-File-Name': encodeURIComponent(path.basename(file)) });
         fs.createReadStream(file).pipe(res);
       } catch (e) { send(res, e.code && e.code >= 400 ? e.code : 400, { ok: false, error: e.message }); }
+      return true;
+    }
+    if (isUpdateInstall) { answer(() => { req.resume(); return actions.updateInstall(); }); return true; }
+    if (isUpdatePackage) {
+      answer(async () => {
+        const name = decodeURIComponent(c);
+        if (name !== actions.updateAsset()) { req.resume(); throw fail(409, `This computer needs ${actions.updateAsset() || 'no update package'}, not ${name}.`); }
+        let raw;
+        try { raw = Buffer.from(String(req.headers['x-update-list'] || ''), 'base64'); } catch { raw = Buffer.alloc(0); }
+        const signature = String(req.headers['x-update-signature'] || '');
+        if (!raw.length || !signature) { req.resume(); throw fail(400, 'The signed update list is missing.'); }
+        const file = await saveUpdate(req, actions.updateTempFile());
+        return actions.updateReceive({ raw, signature, file });
+      });
       return true;
     }
     if (isClear) answer(() => { req.resume(); return actions.clearCues(); });

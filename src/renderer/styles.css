@@ -457,3 +457,13 @@ body.locked .add-tile { display: none; }
 .about-free { color: var(--muted); }
 .about-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
 .env-note { color: var(--muted); font-size: 16px; line-height: 1.45; }
+
+/* ---------- Updates ---------- */
+.btn.tool.update-btn { background: var(--signal-deep); border-color: var(--signal); color: #cfe0ff; font-weight: 700; }
+.btn.tool.update-btn.ready { background: var(--signal); color: #06142e; }
+.update-box { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 14px; }
+.update-box h4 { margin: 0; font: 800 24px/1 var(--num); }
+.update-line { font-size: 20px; }
+.update-note { color: #ffd66b; font-size: 17px; line-height: 1.45; max-width: 62ch; }
+.update-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.update-small { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.45; max-width: 62ch; }

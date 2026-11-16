@@ -522,6 +522,74 @@ on run argv
 	end tell
 end run`;
 
+// ---------- is the deck still open? ----------
+// "open", "gone" or anything else for "cannot tell". A running slideshow always counts as open. Nothing here
+// clicks, activates or changes anything: it only reads.
+const PPT_ALIVE = `
+on run argv
+	if application "Microsoft PowerPoint" is not running then return "gone"
+	try
+		tell application "Microsoft PowerPoint"
+			if (count of slide show windows) > 0 then return "open"
+			repeat with n in argv
+				if (count of (presentations whose name is (contents of n))) > 0 then return "open"
+			end repeat
+		end tell
+	on error
+		return "unknown"
+	end try
+	return "gone"
+end run`;
+
+const KN_ALIVE = `
+on run argv
+	if application "Keynote" is not running then return "gone"
+	try
+		tell application "Keynote"
+			if playing then return "open"
+			repeat with n in argv
+				if (count of (documents whose name is (contents of n))) > 0 then return "open"
+			end repeat
+		end tell
+	on error
+		return "unknown"
+	end try
+	return "gone"
+end run`;
+
+// WPS lists its open documents in the Window menu ("1 Name.pptx"); while a show runs, Play is disabled.
+const WPS_ALIVE = `${WPS_HELPERS}
+on run argv
+	if not my wpsRunning() then return "gone"
+	try
+		set p to my wpsProc()
+		-- A running show (Play is disabled) counts as open. With a text document or a spreadsheet in front
+		-- there is no Slide Show menu at all: that is not a show, so go on to the list of open documents.
+		set showing to false
+		try
+			set showing to not (my playEnabled(p))
+		end try
+		if showing then return "open"
+		tell application "System Events"
+			if exists (first menu item of menu 1 of menu bar item "Window" of menu bar 1 of p whose name ends with (" " & (item 1 of argv))) then return "open"
+			set menuCount to count of (menu items of menu 1 of menu bar item "Window" of menu bar 1 of p)
+		end tell
+		-- An empty Window menu means it could not be read, not that every document is closed.
+		if menuCount is 0 then return "unknown"
+	on error
+		return "unknown"
+	end try
+	return "gone"
+end run`;
+
+// true: still open. false: the operator closed it (or quit the app). null: cannot tell, so assume nothing.
+async function alive(app, file) {
+  const script = app === 'wps' ? WPS_ALIVE : app === 'powerpoint' ? PPT_ALIVE : app === 'keynote' ? KN_ALIVE : null;
+  if (!script || !isInstalled(app)) return null;
+  const out = await osa(script, app === 'wps' ? [path.basename(file)] : names(file), 6000).catch(() => '');
+  return out === 'open' ? true : out === 'gone' ? false : null;
+}
+
 async function position(app) {
   const script = app === 'powerpoint' ? PPT_POSITION : app === 'keynote' ? KN_POSITION : null;
   if (!script || !isInstalled(app)) return null;
@@ -535,4 +603,4 @@ function goto(app, n) {
   return osa(KN_GOTO, [n], 8000).then(() => true, () => false);
 }
 
-module.exports = { APPS, PPT_APP_PREFERENCE, isInstalled, needsAccessibility, fire, stop, nav, close, position, goto };
+module.exports = { APPS, PPT_APP_PREFERENCE, isInstalled, needsAccessibility, fire, stop, nav, close, position, goto, alive };
