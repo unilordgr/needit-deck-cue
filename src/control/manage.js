@@ -84,6 +84,10 @@ function createManage({ getConfig, extensions, actions }) {
             // On Windows a deck that is open in PowerPoint can't be replaced.
             return reject(fail(409, `${name} is in use on that computer. Stop its cue, then send it again.`));
           }
+          // Keep the file's own date (the sender passes it on). Otherwise every copy looks brand new, and a
+          // newer version sent later would be called "older" than the copy it replaces.
+          const date = Number(req.headers['x-file-date']);
+          if (Number.isFinite(date) && date > 0) { try { fs.utimesSync(target, date / 1000, date / 1000); } catch { /* the date is a nicety */ } }
           resolve({ name: path.basename(target), path: target, size, replaced: !!existing });
         });
       });
@@ -143,7 +147,7 @@ function createManage({ getConfig, extensions, actions }) {
       try {
         const file = actions.cuePath(decodeURIComponent(b));
         const st = fs.statSync(file);
-        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': st.size, 'X-File-Name': encodeURIComponent(path.basename(file)) });
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': st.size, 'X-File-Name': encodeURIComponent(path.basename(file)), 'X-File-Date': String(Math.round(st.mtimeMs)) });
         fs.createReadStream(file).pipe(res);
       } catch (e) { send(res, e.code && e.code >= 400 ? e.code : 400, { ok: false, error: e.message }); }
       return true;

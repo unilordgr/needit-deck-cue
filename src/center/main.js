@@ -66,7 +66,8 @@ function request(node, method, urlPath, body, timeout = 8000) {
 function upload(node, file, onProgress, as) {
   return new Promise((resolve) => {
     let total = 0;
-    try { total = fs.statSync(file).size; } catch { return resolve({ ok: false, error: 'The file could not be read.' }); }
+    let date = 0;
+    try { const st = fs.statSync(file); total = st.size; date = Math.round(st.mtimeMs); } catch { return resolve({ ok: false, error: 'The file could not be read.' }); }
     let finished = false;
     let stream = null;
     const done = (r) => { if (finished) return; finished = true; if (stream) stream.destroy(); resolve(r); };
@@ -74,7 +75,7 @@ function upload(node, file, onProgress, as) {
     try {
       req = http.request({
         host: node.address, port: node.port, method: 'PUT', path: `/api/files/${encodeURIComponent(as || path.basename(file))}`,
-        headers: { 'Content-Length': total, ...keyHeader() },
+        headers: { 'Content-Length': total, 'X-File-Date': String(date), ...keyHeader() },
       }, (res) => {
         const chunks = [];
         res.on('data', (c) => chunks.push(c));
@@ -173,7 +174,12 @@ function download(node, urlPath, dest) {
       }
       const out = fs.createWriteStream(dest);
       res.pipe(out);
-      out.on('finish', () => resolve({ ok: true }));
+      out.on('finish', () => {
+        // The copy on this computer keeps the file's own date, so it is passed on unchanged.
+        const date = Number(res.headers['x-file-date']);
+        if (Number.isFinite(date) && date > 0) { try { fs.utimesSync(dest, date / 1000, date / 1000); } catch { /* the date is a nicety */ } }
+        resolve({ ok: true });
+      });
       out.on('error', (e) => resolve({ ok: false, error: e.message }));
     });
     req.on('error', (e) => resolve({ ok: false, error: e.message }));
@@ -392,8 +398,14 @@ async function copyShow(sourceId, targetIds) {
       // The same cue is next on both.
       const next = src.state && src.state.next;
       if (next && next.number) await request(t, 'POST', `/api/cue/${next.number}/arm`);
+      // A file that is missing on the source keeps its place in the list. Say what the copy has for it.
+      for (const x of missing) {
+        const has = await request(t, 'POST', '/api/files/check', { name: x.name });
+        errors.push(has.ok && has.exists
+          ? `“${x.name}” is missing on ${src.name}. ${t.name} still has an older file with that name, so its cue plays that one. The two computers do not have the same file there.`
+          : `“${x.name}” is missing on ${src.name}, so its cue is marked missing on ${t.name} too.`);
+      }
     }
-    if (missing.length) errors.push(`${missing.map((x) => `“${x.name}”`).join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing on ${src.name}, so ${missing.length === 1 ? 'its cue is' : 'those cues are'} marked missing on the copy too.`);
   } finally {
     targetIds.forEach((t) => copying.delete(t));
     fs.rm(tmp, { recursive: true, force: true }, () => {});
