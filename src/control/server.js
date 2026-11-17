@@ -115,7 +115,9 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     if (a === 'arm' && (b === 'next' || b === 'prev') && !c) return { action: `arm-${b}` };
     if (a === 'timer' && ['start', 'pause', 'reset', 'set', 'add', 'preset', 'until'].includes(b) && !c) {
       // preset takes ?n=<position>, until takes ?time=HH:MM, the others ?seconds=
-      return { action: 'timer', arg: { cmd: b, seconds: b === 'preset' ? query.get('n') : b === 'until' ? query.get('time') : query.get('seconds') } };
+      // set also takes ?start=1 (set it and start it, like a saved timer)
+      const cmd = b === 'set' && ['1', 'true', 'on'].includes(query.get('start')) ? 'setstart' : b;
+      return { action: 'timer', arg: { cmd, seconds: b === 'preset' ? query.get('n') : b === 'until' ? query.get('time') : query.get('seconds') } };
     }
     if (a === 'message' && !b) return { action: 'message', arg: { text: query.get('text') || '', flash: ['1', 'true', 'on'].includes(query.get('flash')) } };
     if (a === 'message' && b === 'clear' && !c) return { action: 'message', arg: { text: '', flash: false } };

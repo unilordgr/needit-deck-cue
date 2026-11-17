@@ -15,6 +15,9 @@ if (process.env.PORTABLE_EXECUTABLE_DIR) {
 const profileArg = process.argv.find((a) => a.startsWith('--profile='));
 const PROFILE = (profileArg ? profileArg.slice('--profile='.length) : process.env.DECKCUE_PROFILE || '').replace(/[^\w-]/g, '');
 if (PROFILE) app.setPath('userData', `${app.getPath('userData')} (${PROFILE})`);
+// One copy per settings folder: a second one would share the autosave and silently have no remote control.
+if (!app.requestSingleInstanceLock()) app.exit(0);
+app.on('second-instance', () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
 
 const presenters = require('./presenters');
 const { createControlServer, localAddresses } = require('./control/server');
@@ -138,11 +141,44 @@ function readJSON(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
 }
 
+// Written to a temporary file first, so a power cut in the middle of a save cannot leave an empty show.
+function writeSafe(file, text) {
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, text);
+  fs.renameSync(tmp, file);
+}
+
 function autosave() {
   try {
-    fs.writeFileSync(userFile('autosave.deckcue'), JSON.stringify(show, null, 2));
-    fs.writeFileSync(userFile('prefs.json'), JSON.stringify({ ...prefs, showPath, dirty }));
+    writeSafe(userFile('autosave.deckcue'), JSON.stringify(show, null, 2));
+    writeSafe(userFile('prefs.json'), JSON.stringify({ ...prefs, showPath, dirty }));
   } catch (e) { console.error('autosave failed', e); }
+}
+
+// Where the show was: the next cue, the speaker timer, the stage message and the presenter pause. After a
+// crash or a restart in the middle of an event, Deck Cue comes back there instead of at cue 1 with 00:00.
+let runtimeSaved = '';
+let runtimeTimer = null;
+function saveRuntime() {
+  clearTimeout(runtimeTimer);
+  runtimeTimer = setTimeout(() => {
+    const text = JSON.stringify({ armedCueId: state.armedCueId, timer: state.timer, stageMessage: state.stageMessage, presenterMuted: state.presenterMuted, savedAt: Date.now() });
+    if (text.replace(/"savedAt":\d+/, '') === runtimeSaved) return;
+    runtimeSaved = text.replace(/"savedAt":\d+/, '');
+    try { writeSafe(userFile('runtime.json'), text); } catch { /* not worth stopping for */ }
+  }, 400);
+}
+function restoreRuntime() {
+  const r = readJSON(userFile('runtime.json'));
+  if (!r) return;
+  if (r.armedCueId && show.cues.some((c) => c.id === r.armedCueId)) state.armedCueId = r.armedCueId;
+  const t = r.timer;
+  // A countdown that ended more than two hours ago belongs to another day.
+  if (t && Number.isFinite(t.duration) && !(t.running && t.endsAt && t.endsAt < Date.now() - 2 * 3600 * 1000)) {
+    state.timer = { duration: t.duration || 0, remaining: Number.isFinite(t.remaining) ? t.remaining : 0, endsAt: t.running ? t.endsAt : null, running: !!t.running && !!t.endsAt };
+  }
+  if (r.stageMessage && typeof r.stageMessage.text === 'string') state.stageMessage = { text: r.stageMessage.text, flash: !!r.stageMessage.flash };
+  state.presenterMuted = !!r.presenterMuted;
 }
 
 function loadInitial() {
@@ -311,8 +347,12 @@ function toggleBlackout() {
 }
 
 // ---------- cues ----------
+let messageTimer = null;
 function setMessage(msg, level = 'info') {
   state.message = msg; state.messageLevel = level; broadcast();
+  // Information goes away by itself; a warning or an error stays until it is dismissed or replaced.
+  clearTimeout(messageTimer);
+  if (msg && level === 'info') messageTimer = setTimeout(() => { if (state.message === msg) { state.message = null; state.messageLevel = null; broadcast(); } }, 12000);
 }
 
 function cueAutoSlideshow(cue) {
@@ -773,10 +813,15 @@ function timerRemaining() {
 
 function timerCommand(cmd, seconds) {
   const t = state.timer;
-  if (cmd === 'set') {
-    const ms = Math.max(0, Math.round(Number(seconds) || 0) * 1000);
-    state.timer = { duration: ms, remaining: ms, endsAt: t.running ? Date.now() + ms : null, running: t.running };
+  const bad = (text) => Object.assign(new Error(text), { code: 400 });
+  if (cmd === 'set' || cmd === 'setstart') {
+    // An empty or unreadable time must not wipe a running countdown.
+    if (seconds === null || seconds === undefined || String(seconds).trim() === '' || !Number.isFinite(Number(seconds)) || Number(seconds) < 0) throw bad('Give the time in seconds, for example 300.');
+    const ms = Math.round(Number(seconds)) * 1000;
+    const running = cmd === 'setstart' ? ms > 0 : t.running;
+    state.timer = { duration: ms, remaining: ms, endsAt: running ? Date.now() + ms : null, running };
   } else if (cmd === 'start') {
+    if (!t.running && t.duration <= 0 && t.remaining <= 0) throw bad('Set a time first.');
     if (!t.running) state.timer = { ...t, running: true, endsAt: Date.now() + t.remaining };
   } else if (cmd === 'pause') {
     if (t.running) state.timer = { ...t, running: false, remaining: t.endsAt - Date.now(), endsAt: null };
@@ -784,9 +829,16 @@ function timerCommand(cmd, seconds) {
     state.timer = { ...t, running: false, remaining: t.duration, endsAt: null };
   } else if (cmd === 'add') {
     // Changing the time on the fly also moves the total, so progress bars stay meaningful.
-    const ms = Math.round(Number(seconds) || 0) * 1000;
+    if (!Number.isFinite(Number(seconds))) throw bad('Give the seconds to add or take off.');
+    const ms = Math.round(Number(seconds)) * 1000;
     const duration = Math.max(0, t.duration + ms);
-    state.timer = t.running ? { ...t, duration, endsAt: t.endsAt + ms } : { ...t, duration, remaining: t.remaining + ms };
+    // Taking time off stops at zero: it never turns a countdown into "over time" by itself.
+    if (t.running) {
+      const left = t.endsAt - Date.now();
+      state.timer = { ...t, duration, endsAt: ms < 0 && left > 0 ? Math.max(Date.now(), t.endsAt + ms) : t.endsAt + ms };
+    } else {
+      state.timer = { ...t, duration, remaining: ms < 0 && t.remaining > 0 ? Math.max(0, t.remaining + ms) : t.remaining + ms };
+    }
   } else if (cmd === 'preset') {
     // A saved timer: set it and start it in one go. `seconds` carries its position, 1-based.
     const p = show.settings.timerPresets[Math.round(Number(seconds)) - 1];
@@ -822,7 +874,7 @@ async function fireCue(id) {
   if (!file) return setMessage(`Cue “${cueName(cue)}”: file is missing (${cue.file ? cue.file.path : 'no file'})`, 'error');
 
   const appName = presenters.appFor(cue.app, file, show.settings.pptApp);
-  if (!presenters.isInstalled(appName)) return setMessage(`${presenters.APPS[appName].name} is not installed on this Mac. Pick another app in the cue or in Settings.`, 'error');
+  if (!presenters.isInstalled(appName)) return setMessage(`${presenters.APPS[appName].name} is not installed on this computer. Pick another app in the cue or in Settings.`, 'error');
 
   const auto = cueAutoSlideshow(cue);
   const outRef = !cue.output || cue.output === 'default' ? show.settings.defaultOutput : cue.output;
@@ -900,9 +952,17 @@ function cueName(cue) {
   return cue.label || (cue.file ? path.basename(cue.file.path, path.extname(cue.file.path)) : 'Untitled');
 }
 
+let lastGo = 0;
 function go() {
-  const id = state.armedCueId || (show.cues[0] && show.cues[0].id);
-  if (id) fireCue(id);
+  // A held key, a double press or a bouncing button must not run through two cues.
+  const now = Date.now();
+  if (now - lastGo < 700) return;
+  lastGo = now;
+  const armed = state.armedCueId && show.cues.find((c) => c.id === state.armedCueId);
+  if (armed) return fireCue(armed.id);
+  // Nothing is next. At the end of the show GO does nothing; before the show it starts the first cue.
+  if (state.liveCueId || state.busyCueId) return setMessage('That was the last cue. Nothing is next.', 'info');
+  if (show.cues[0]) fireCue(show.cues[0].id);
 }
 
 async function stopAll() {
@@ -1187,7 +1247,11 @@ function remoteState() {
 }
 
 function startControl() {
-  control.start(prefs.control);
+  try {
+    control.start(prefs.control);
+  } catch (e) {
+    setMessage(`Remote control could not start: ${e.message}`, 'error');
+  }
 }
 
 function sendShow() {
@@ -1198,6 +1262,7 @@ function sendShow() {
 
 function broadcast() {
   updateTimerScreen();
+  saveRuntime();
   if (win && !win.isDestroyed()) win.webContents.send('state', state);
   if (control) control.update();
 }
@@ -1287,7 +1352,7 @@ function setupIpc() {
     return { ...prefs.showMode, focusOn: showmode.FOCUS_ON, focusOff: showmode.FOCUS_OFF, platform: process.platform };
   });
   ipcMain.handle('showmode:openShortcuts', () => shell.openPath('/System/Applications/Shortcuts.app'));
-  ipcMain.handle('timer:cmd', (_e, cmd, seconds) => timerCommand(cmd, seconds));
+  ipcMain.handle('timer:cmd', (_e, cmd, seconds) => { try { timerCommand(cmd, seconds); } catch (e) { setMessage(`Timer: ${e.message}`, 'warn'); } });
   ipcMain.handle('stage:message', (_e, text, flash) => setStageMessage(text, flash));
   ipcMain.handle('stage:open', (_e, view) => shell.openExternal(`http://127.0.0.1:${prefs.control.httpPort}/stage${view === 'timer' ? '?view=timer' : ''}`));
   ipcMain.handle('files:status', (_e, paths) => Object.fromEntries(paths.map((p) => [p, fs.existsSync(p)])));
@@ -1310,7 +1375,13 @@ function setupIpc() {
   });
   ipcMain.handle('control:get', () => ({ config: prefs.control, status: control.getStatus(), addresses: localAddresses() }));
   ipcMain.handle('control:set', (_e, config) => {
-    prefs.control = { ...DEFAULT_CONTROL, ...config };
+    const next = { ...DEFAULT_CONTROL, ...config };
+    // A port that cannot exist would leave remote control off after the next start, without a word.
+    for (const key of ['httpPort', 'oscPort', 'oscFeedbackPort']) {
+      const n = Number(next[key]);
+      next[key] = Number.isInteger(n) && n >= 1024 && n <= 65535 ? n : (Number(prefs.control[key]) || DEFAULT_CONTROL[key]);
+    }
+    prefs.control = next;
     autosave();
     startControl();
     return { config: prefs.control, status: control.getStatus(), addresses: localAddresses() };
@@ -1334,11 +1405,11 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(IS_MAC ? [{ role: 'appMenu' }] : []),
     { label: 'File', submenu: [
-      { label: 'New Show', accelerator: 'Command+N', click: send('new') },
-      { label: 'Open Show…', accelerator: 'Command+O', click: send('open') },
+      { label: 'New Show', accelerator: 'CmdOrCtrl+N', click: send('new') },
+      { label: 'Open Show…', accelerator: 'CmdOrCtrl+O', click: send('open') },
       { type: 'separator' },
-      { label: 'Save', accelerator: 'Command+S', click: send('save') },
-      { label: 'Save As…', accelerator: 'Shift+Command+S', click: send('saveAs') },
+      { label: 'Save', accelerator: 'CmdOrCtrl+S', click: send('save') },
+      { label: 'Save As…', accelerator: 'Shift+CmdOrCtrl+S', click: send('saveAs') },
       ...(IS_MAC ? [] : [{ type: 'separator' }, { role: 'quit' }]),
     ] },
     { role: 'editMenu' },
@@ -1403,6 +1474,7 @@ app.whenReady().then(() => {
     if (state.live && state.live.app === 'pdf') { state.live = null; state.liveCueId = null; state.liveDetail = null; registerShortcuts(); broadcast(); }
   });
   loadInitial();
+  restoreRuntime();
   updater = createUpdater({
     prefix: 'needit-Deck-Cue',
     getSettings: () => prefs.update || DEFAULT_UPDATE,

@@ -16,7 +16,7 @@ let capture = null; // { kind: 'cue' } | { kind: 'global', key }
 
 // ---------- helpers ----------
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
-const baseName = (p) => (p || '').split('/').pop();
+const baseName = (p) => (p || '').split(/[\\/]/).pop(); // Windows paths use backslashes
 const stem = (p) => baseName(p).replace(/\.[^.]+$/, '');
 const ext = (p) => (baseName(p).match(/\.[^.]+$/) || [''])[0].toLowerCase();
 const cueById = (id) => show.cues.find((c) => c.id === id);
@@ -1051,6 +1051,7 @@ function setupStageBar() {
   $('timerSet').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     const text = e.target.value.trim();
+    if (!text) return; // Return in the empty box must not wipe a running timer
     // "@15:30" counts down to that time of day.
     const until = /^@\s*(\d{1,2}[:.]\d{2})$/.exec(text);
     if (until) {
@@ -1136,9 +1137,10 @@ async function replaceFile(id, p) {
 function moveCue(id, beforeId) {
   const from = show.cues.findIndex((c) => c.id === id);
   if (from < 0 || id === beforeId) return;
+  // Dropped on another cue: it takes that cue's place. Moving down, that is after it; moving up, before it.
+  const target = beforeId ? show.cues.findIndex((x) => x.id === beforeId) : -1;
   const [c] = show.cues.splice(from, 1);
-  const to = beforeId ? show.cues.findIndex((x) => x.id === beforeId) : show.cues.length;
-  show.cues.splice(to < 0 ? show.cues.length : to, 0, c);
+  show.cues.splice(target < 0 ? show.cues.length : target, 0, c);
   commit();
 }
 
@@ -1294,6 +1296,7 @@ function setupEditor() {
   };
   $('edDelete').onclick = () => {
     const c = cueById(selectedId);
+    if (c.id === runtime.liveCueId || c.id === runtime.busyCueId) return flash('That cue is live. Stop it first, then delete it.', 'warn');
     if (!confirm(`Delete cue ${show.cues.indexOf(c) + 1} “${cueName(c)}”?`)) return;
     show.cues = show.cues.filter((x) => x.id !== selectedId);
     selectedId = null;
@@ -1402,6 +1405,10 @@ function setupKeyboard() {
     if (!$('presetsModal').hidden) { if (e.key === 'Escape') $('presetsModal').hidden = true; return; }
     const accel = accelFromEvent(e);
     if (!accel) return;
+    // A key that is held down repeats: one press is one action, or a held Space runs through the cues.
+    if (e.repeat) { e.preventDefault(); return; }
+    // Esc with the cue editor open closes the editor. It does not stop the show.
+    if (accel === 'Escape' && selectedId) { e.preventDefault(); $('edClose').click(); return; }
     // Cue shortcuts (global ones are handled by the main process, which also fires while we're focused).
     const cue = show.cues.find((c) => c.shortcut && c.shortcut.accel === accel && !c.shortcut.global);
     if (cue) { e.preventDefault(); api.fire(cue.id); return; }
