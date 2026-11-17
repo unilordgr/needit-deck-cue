@@ -63,7 +63,7 @@ function request(node, method, urlPath, body, timeout = 8000) {
 }
 
 // Send one file. `as` is the name it gets on the player (to keep two different files with one name apart).
-function upload(node, file, onProgress, as) {
+function upload(node, file, onProgress, as, base = '/api/files/') {
   return new Promise((resolve) => {
     let total = 0;
     let date = 0;
@@ -74,7 +74,7 @@ function upload(node, file, onProgress, as) {
     let req;
     try {
       req = http.request({
-        host: node.address, port: node.port, method: 'PUT', path: `/api/files/${encodeURIComponent(as || path.basename(file))}`,
+        host: node.address, port: node.port, method: 'PUT', path: `${base}${encodeURIComponent(as || path.basename(file))}`,
         headers: { 'Content-Length': total, 'X-File-Date': String(date), ...keyHeader() },
       }, (res) => {
         const chunks = [];
@@ -364,6 +364,14 @@ async function copyShow(sourceId, targetIds) {
       items.push({ cue, name, local });
     }
     const missing = items.filter((x) => !x.local);
+    // The source's event card, if it has one.
+    let cardLocal = null;
+    const cardName = src.state && src.state.timerScreen && src.state.timerScreen.card;
+    if (cardName) {
+      fs.mkdirSync(path.join(tmp, 'card'));
+      const got = await download(src, '/api/card', path.join(tmp, 'card', cardName));
+      if (got.ok) cardLocal = path.join(tmp, 'card', cardName);
+    }
     for (const tid of targetIds) {
       const t = nodes.get(tid);
       if (!t || !t.online) { errors.push(`${t ? t.name : 'A computer'} is not connected, so nothing was copied to it.`); continue; }
@@ -395,7 +403,12 @@ async function copyShow(sourceId, targetIds) {
       }
       const st = showRes.settings || {};
       if (Array.isArray(st.timerPresets)) await request(t, 'POST', '/api/timer/presets', { presets: st.timerPresets });
-      if (st.timerScreen) await request(t, 'POST', '/api/timerscreen/config', { idle: st.timerScreen.idle, livePip: st.timerScreen.livePip, title: st.timerScreen.title, showClock: st.timerScreen.showClock });
+      // The event card travels with the list (before the settings, so "show the card between presentations" finds it).
+      if (cardLocal) {
+        const up = await upload(t, cardLocal, () => {}, null, '/api/card/');
+        if (!up.ok) errors.push(`${t.name}: the event card was not copied (${up.error}).`);
+      }
+      if (st.timerScreen) await request(t, 'POST', '/api/timerscreen/config', { idle: st.timerScreen.idle, livePip: st.timerScreen.livePip, title: st.timerScreen.title, showClock: st.timerScreen.showClock, pip: st.timerScreen.pip });
       // The same cue is next on both.
       const next = src.state && src.state.next;
       if (next && next.number) await request(t, 'POST', `/api/cue/${next.number}/arm`);
@@ -434,6 +447,16 @@ function setupIpc() {
     savePrefs();
     nodes.delete(id);
     pushNodes();
+  });
+  // The event card: an image sent to a computer, which then shows it on its output when asked to.
+  ipcMain.handle('card:pick', async () => {
+    const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }] });
+    return r.canceled ? null : r.filePaths[0];
+  });
+  ipcMain.handle('node:card', (_e, id, file) => {
+    const node = nodes.get(id);
+    if (!node) return { ok: false, error: 'That computer is gone.' };
+    return upload(node, String(file), () => {}, null, '/api/card/');
   });
   ipcMain.handle('files:pick', async () => {
     const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Presentations', extensions: PRESENTATION_EXT }] });

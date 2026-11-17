@@ -128,10 +128,10 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     }
     if (a === 'timerscreen' && !b) {
       const st = query.get('state');
-      // content=clock shows the time of day instead of the timer.
+      // content=clock shows the time of day instead of the timer, content=card the event card.
       // Without ?content the toggle hides whatever is up (a clock too) instead of switching it to the timer.
       const content = query.get('content');
-      return { action: 'timerscreen', arg: { on: st === 'on' ? true : st === 'off' ? false : undefined, content: content === 'clock' ? 'clock' : content === 'timer' || st === 'on' ? 'timer' : undefined } };
+      return { action: 'timerscreen', arg: { on: st === 'on' ? true : st === 'off' ? false : undefined, content: content === 'clock' || content === 'card' ? content : content === 'timer' || st === 'on' ? 'timer' : undefined } };
     }
     if (a === 'showmode' && !b) {
       const st = query.get('state');

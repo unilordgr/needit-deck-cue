@@ -111,7 +111,7 @@ body.mac .topbar { padding-left: 88px; }
 .pc-controls { padding: 10px 14px; display: grid; gap: 8px; border-bottom: 1px solid var(--line); }
 .label { font-size: 15px; color: var(--muted); white-space: nowrap; }
 .seg-row { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; }
-.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.seg { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .seg button { background: var(--bg); color: var(--text); border: 0; border-left: 1px solid var(--line); padding: 9px 6px; font: 600 17px var(--ui); cursor: pointer; }
 .seg button:first-child { border-left: 0; }
 .seg button:hover { background: var(--panel-2); }
@@ -178,6 +178,18 @@ body.mac .topbar { padding-left: 88px; }
 .more .line { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; font-size: 16px; }
 .more .line select { flex: 0 0 190px; }
 .more label.check { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.more .line.why { color: #ffd66b; font-size: 15px; line-height: 1.35; justify-content: flex-start; }
+.more .card-name { flex: 1; min-width: 0; text-align: right; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.more .card-name.set { color: var(--text); }
+/* Where the small timer sits: a little picture of the screen, nine places to click. */
+.pip-set { display: flex; align-items: center; gap: 12px; flex: none; }
+.pos-grid { display: grid; grid-template-columns: repeat(3, 26px); grid-template-rows: repeat(3, 17px); gap: 3px; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.pos-grid button { border: 0; border-radius: 3px; background: var(--panel-2); cursor: pointer; padding: 0; }
+.pos-grid button:hover { background: #4a4e56; }
+.pos-grid button.on { background: var(--signal); }
+.pos-grid button:disabled { cursor: default; opacity: .5; }
+.seg.sizes { grid-template-columns: repeat(3, 38px); }
+.seg.sizes button { padding: 7px 0; font-size: 15px; }
 
 /* ---------- dialogs ---------- */
 .modal { position: fixed; inset: 0; background: rgba(0, 0, 0, .6); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 10; }

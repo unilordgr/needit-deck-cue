@@ -57,6 +57,13 @@ function tick() {
 
 function render() {
   $('full').hidden = s.mode !== 'full';
+  // The event card: one image, fitted to the screen on black, instead of the figures.
+  const showCard = s.content === 'card' && !!s.card;
+  $('full').toggleAttribute('data-card', showCard);
+  const img = $('card');
+  if (showCard && img.dataset.src !== s.card) { img.dataset.src = s.card; img.src = s.card; }
+  img.hidden = !showCard;
+  $('hint').textContent = showCard ? 'Click anywhere to hide the card' : 'Click anywhere to hide the timer';
   $('pip').hidden = s.mode !== 'pip';
   $('title').textContent = s.config.title || '';
   $('hint').hidden = !s.clickToClose;

@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('api', {
   centerOpenFolder: invoke('center:openFolder'),
   timerScreenForce: invoke('timerscreen:force'),
   timerScreenPreview: invoke('timerscreen:preview'),
+  cardChoose: invoke('card:choose'),
+  cardClear: invoke('card:clear'),
   midiGet: invoke('midi:get'),
   midiSet: invoke('midi:set'),
   presenterGet: invoke('presenter:get'),

@@ -130,7 +130,8 @@ Connect all the computers to the same network (a simple switch is enough). The C
 - **Order them:** drag cues up and down.
 - **Play them:** GO, Play on any cue, Stop, next and previous slide. Click a cue to make it the next one.
 - **Choose per cue** whether it opens **Full screen** or **Just opens**, and give it a **timer** that starts when it plays.
-- **Choose what the screen shows:** Slides, a full-screen **Timer** or the **Clock**. Under *More*: what to show between presentations, a small timer on top of the slides, and Blackout.
+- **Choose what the screen shows:** Slides, a full-screen **Timer**, the **Clock**, or the **Card** (the event card: an image such as the event's logo slide; the first click asks for the image and sends it). Under *More*: what to show between presentations (nothing, the timer, the time or the event card), the event card's image, a small timer on top of the slides with **where it sits** (nine places) **and how big it is** (S, M, L), and Blackout.
+- **Choose the screen the slideshows go to** on each computer (*More › Slideshows go to*). The list shows that computer's own screens. Two laptops for one talk: link them, send both the same presentation, and choose a different screen on each. For speaker notes, choose the laptop's *own* screen on the notes laptop: the presentation app then puts its presenter view (notes) on the other screen, if presenter view is switched on in that app. (That part is the presentation app's doing and has not been tried by us yet. WPS Office on Windows and Keynote choose their screen themselves.)
 - **Run the timer:** saved timers with one click, Start/Pause, −1 and +1 minute while it runs, another time, or `@15:30` to count down to a time of day.
 
 **Files from a USB stick**
@@ -213,7 +214,9 @@ The speaker timer can also be shown on the output itself, in three ways. Set it 
 **Behaviour**
 - The timer turns amber for the last two minutes and red with "+MM:SS" when over time.
 - Blackout covers the timer too.
-- Remote: `POST /api/timerscreen[?state=on|off][&content=timer|clock]`, OSC `/deckcue/timerscreen [0|1]`, or the Companion *Timer: full screen on the output* action. Without `state` it toggles: it hides whatever is up (a clock too), or shows the timer. A backup machine follows the Full screen button.
+- Remote: `POST /api/timerscreen[?state=on|off][&content=timer|clock|card]`, OSC `/deckcue/timerscreen [0|1]`, or the Companion *Timer: full screen on the output* action. Without `state` it toggles: it hides whatever is up (a clock too), or shows the timer. A backup machine follows the Full screen and Event card buttons.
+
+**Event card.** One image for the output, for example the event's logo slide (PNG or JPG, ideally the size of the screen; it is fitted on black, never cut or stretched). Choose it under **On screen…**, or send it from the Command Center. Then either press **Event card** to put it up now, over anything that is playing, or choose *Between presentations: The event card* and it appears by itself whenever no presentation is live: it covers the app while a cue loads and comes back the moment you press Stop. The image is kept in the show folder. Blackout covers it.
 
 Tested on macOS over a fullscreen WPS slideshow and the PDF player. Not yet tried over PowerPoint or Keynote, or on Windows.
 
@@ -407,7 +410,7 @@ To install it:
 | `GET /api/info`, `PUT /api/files/<name>`, `POST /api/cues`, `/api/cue/<ref>/file`, `/update`, `/move?to=N`, `/delete` | Command Center: identify, receive files, manage cues (only when the computer accepts a Command Center; optional header `X-DeckCue-Key`) |
 | `POST /api/message?text=…&flash=1`, `/api/message/clear` | Stage message |
 | `POST /api/showmode[?state=on\|off]` | Show-machine mode (toggle without state) |
-| `POST /api/timerscreen[?state=on\|off][&content=timer\|clock]` | Full-screen timer (or clock) on the output. Without state it toggles: hides what is up, or shows the timer |
+| `POST /api/timerscreen[?state=on\|off][&content=timer\|clock\|card]` | Full-screen timer, clock or event card on the output. Without state it toggles: hides what is up, or shows the timer |
 | `POST /api/presenter/mute[?state=on\|off]` | Pause / allow the presenter remote |
 | `POST /api/presenter/next`, `/prev`, `/check` + header `X-Presenter-Pin` | Presenter remote (PIN) |
 | `GET /api/cue/<ref>/thumb` | First-slide thumbnail |
@@ -488,6 +491,8 @@ Windows builds can't be made on an Apple Silicon Mac, so GitHub Actions makes th
 **After a restart:** Deck Cue comes back where the show was: the same next cue, the speaker timer still counting, the stage message still up.
 
 **GO at the end:** after the last cue, GO does nothing. A held Space or a double press plays one cue, not two.
+
+**Stop closes the presentation.** Stop ends the slideshow and closes that presentation in its app (the app itself stays open), so a day of fifteen cues does not leave fifteen open windows. Settings › Playing presentations has the switch (*Stop also closes the presentation*) if you would rather keep them open. (Checked with WPS Office on macOS.)
 
 **Closed by hand:** if you close a presentation yourself, or quit PowerPoint, Keynote or WPS Office, Deck Cue notices within a few seconds and the cue is no longer shown as live. (Checked with WPS Office on macOS; the PowerPoint, Keynote and Windows checks are written but not yet run against the real apps.)
 

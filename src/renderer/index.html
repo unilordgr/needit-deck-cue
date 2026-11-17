@@ -57,7 +57,8 @@
         <input id="timerSet" class="timer-set" placeholder="Other time: 5, 2:30 or @15:30" title="Type minutes (5), minutes and seconds (2:30), or @15:30 to count down to that time of day. Then press Return.">
         <div class="timer-screen">
           <button id="timerFullBtn" class="btn" title="Show the timer full screen on the output now, over anything that is playing">Full screen</button>
-          <button id="timerScreenBtn" class="btn ghost" title="Choose what the output shows: full screen between presentations, a corner overlay during them">On screen…</button>
+          <button id="cardFullBtn" class="btn" title="Show the event card (an image, for example the event's logo slide) on the output now, over anything that is playing">Event card</button>
+          <button id="timerScreenBtn" class="btn ghost wide" title="Choose what the output shows: the timer, the time or the event card between presentations, a corner timer during them">On screen…</button>
         </div>
         <div id="timerScreenStatus" class="rail-note"></div>
       </section>
@@ -177,6 +178,7 @@
             <select id="setNewer"><option value="ask">Show it and ask</option><option value="auto">Switch to it automatically</option><option value="off">Ignore it</option></select></label>
           <div id="filesSettings" class="remote"></div>
           <label class="toggle"><input type="checkbox" id="setClosePrev"><span>Close the previous presentation when the next cue starts</span></label>
+          <label class="toggle"><input type="checkbox" id="setCloseStop"><span>Stop also closes the presentation (the app stays open)</span></label>
           <label class="toggle"><input type="checkbox" id="setBackdrop"><span>Show a black screen while switching cues</span></label>
           <label class="toggle"><input type="checkbox" id="setTimerAuto"><span>Start the speaker timer when a cue with a timer starts</span></label>
           <label class="toggle"><input type="checkbox" id="setRefocus"><span>Bring Deck Cue back to the front after a cue starts</span></label>
@@ -289,7 +291,7 @@
   <div id="timerScreenModal" class="modal" hidden>
     <div class="modal-card">
       <div class="editor-head">
-        <h2>Timer on screen</h2>
+        <h2>On the output screen</h2>
         <button id="tsClose" class="btn ghost small">✕</button>
       </div>
       <label class="row wide"><span>Screen</span><select id="tsDisplay"></select></label>
@@ -298,7 +300,14 @@
           <option value="off">Show nothing</option>
           <option value="timer">Full-screen timer</option>
           <option value="clock">Full-screen current time</option>
+          <option value="card">The event card</option>
         </select></label>
+      <div class="row wide"><span>Event card</span>
+        <div class="ts-card">
+          <span id="tsCardName" class="ts-card-name">No image yet</span>
+          <button id="tsCardChoose" class="btn small" title="An image for the output, for example the event's logo slide (PNG or JPG, ideally the size of the screen)">Choose image…</button>
+          <button id="tsCardClear" class="btn ghost small" hidden>Remove</button>
+        </div></div>
       <label class="row wide"><span>Title above it</span><input id="tsTitle" placeholder="For example: Starting in" maxlength="60"></label>
       <label class="toggle"><input type="checkbox" id="tsClock"><span>Show the current time under the full-screen timer</span></label>
       <div id="tsNote" class="status-bad" hidden></div>

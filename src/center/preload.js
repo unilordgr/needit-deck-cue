@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('center', {
   add: invoke('node:add'),
   remove: invoke('node:remove'),
   pickFiles: invoke('files:pick'),
+  pickCard: invoke('card:pick'),
+  sendCard: invoke('node:card'),
   checkFile: invoke('files:check'),
   fileInfo: invoke('files:info'),
   about: invoke('about:get'),

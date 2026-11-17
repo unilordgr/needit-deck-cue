@@ -101,7 +101,8 @@ function defaultShow() {
       timerPresets: [5, 10, 15, 20, 30].map((minutes) => ({ name: '', minutes })),
       // Timer on the output screen (see timerScreen.js).
       timerScreen: {
-        idle: 'off',                  // full screen between presentations: 'off' | 'timer' | 'clock' (time of day)
+        idle: 'off',                  // full screen between presentations: 'off' | 'timer' | 'clock' (time of day) | 'card'
+        card: '',                     // the event card: an image shown full screen on the output (see cardFile)
         livePip: false,               // corner overlay while a presentation is live
         display: 'output',            // 'output' = follow the show's output, or a display ref
         title: '',                    // line above the full-screen figure, e.g. "Starting in"
@@ -111,6 +112,7 @@ function defaultShow() {
       },
       pptApp: 'auto',                 // app for .ppt/.pptx: 'auto' (first installed) | 'powerpoint' | 'wps' | 'keynote'
       closePrevious: true,            // close the previous cue's presentation after the new one starts
+      closeOnStop: true,              // Stop also closes the presentation (otherwise every played deck stays open in the app)
       refocusAfterFire: false,        // bring Deck Cue back to front after a cue starts
       backdropDuringChangeover: false,// black window on the output while switching cues
       locked: false,
@@ -295,6 +297,14 @@ function resolveOutput(ref) {
   if (byId) return byId;
   const sameName = ds.filter((d) => d.label === ref.label);
   return sameName.find((d) => d.bounds.width === ref.width && d.bounds.height === ref.height) || (sameName.length === 1 ? sameName[0] : null);
+}
+
+// The show's output as a Command Center sees it: 'auto', 'window', or the screen (id: null when it is not connected).
+function outputState() {
+  const ref = show.settings.defaultOutput;
+  if (!ref || typeof ref !== 'object') return ref === 'window' ? 'window' : 'auto';
+  const d = resolveOutput(ref);
+  return { id: d ? d.id : null, label: ref.label || 'Screen' };
 }
 
 function identifyDisplays() {
@@ -600,13 +610,17 @@ function updateTimerScreen() {
   let mode = 'off';
   let content = 'timer';
   let note = null;
+  const card = cardFile();
+  const noCard = ts.card ? 'The event card image is missing. Choose it again under On screen…' : 'No event card yet. Choose its image under On screen…';
   if (rt.forced) {
-    mode = 'full';
-    content = rt.forcedContent === 'clock' ? 'clock' : 'timer';
+    content = CONTENTS.includes(rt.forcedContent) ? rt.forcedContent : 'timer';
+    if (content === 'card' && !card) note = noCard; else mode = 'full';
   } else if (!state.live && ts.idle !== 'off') {
+    const want = CONTENTS.includes(ts.idle) ? ts.idle : 'timer';
+    if (want === 'card' && !card) note = noCard;
     // Never cover the operator's own screen automatically (DECKCUE_TEST_COVER is for single-screen testing).
-    if (coversOperator && !process.env.DECKCUE_TEST_COVER) note = 'Full screen between presentations needs a second screen. On this one it would cover Deck Cue.';
-    else { mode = 'full'; content = ts.idle === 'clock' ? 'clock' : 'timer'; }
+    else if (coversOperator && !process.env.DECKCUE_TEST_COVER) note = 'Full screen between presentations needs a second screen. On this one it would cover Deck Cue.';
+    else { mode = 'full'; content = want; }
   } else if (state.live && ts.livePip) {
     mode = 'pip';
   }
@@ -619,18 +633,59 @@ function updateTimerScreen() {
   timerScreen.update({
     // Only the Full screen button can cover the operator's own screen; a click on the timer then hides it.
     mode, display: d, clickToClose: mode === 'full' && coversOperator && rt.forced,
-    payload: { content, timer: state.timer, config: ts },
+    payload: { content, timer: state.timer, config: ts, card: card ? cardUrl(card) : '' },
   }).catch((e) => console.error('timer screen', e));
 }
 
-// content: 'timer' or 'clock' (time of day).
+// The event card: one image for the output (the event's own holding slide). It can be sent to the output at any
+// time, or shown by itself whenever no presentation is playing. Its file lives in the show folder.
+const CARD_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'];
+const CONTENTS = ['timer', 'clock', 'card'];
+function cardFile() {
+  const c = show.settings.timerScreen.card;
+  if (!c) return null;
+  if (fs.existsSync(c)) return c;
+  // A show from another computer: the image is found here by its name, like the presentations.
+  const here = nameInFolder(prefs.center.folder, String(c).split(/[\\/]/).pop());
+  return here ? path.join(prefs.center.folder, here) : null;
+}
+// The date in the address makes the output load the image again when a new one replaces it.
+function cardUrl(file) {
+  let v = 0;
+  try { v = Math.round(fs.statSync(file).mtimeMs); } catch { /* shown as it is */ }
+  return `${require('url').pathToFileURL(file).href}?v=${v}`;
+}
+// src: an image anywhere on this computer, or '' to take the card away.
+async function setCard(src) {
+  const ts = show.settings.timerScreen;
+  if (!src) {
+    ts.card = '';
+    if (ts.idle === 'card') ts.idle = 'off';
+    if (state.timerScreen.forced && state.timerScreen.forcedContent === 'card') state.timerScreen.forced = false;
+    showChanged();
+    return { card: '' };
+  }
+  if (!CARD_EXT.includes(path.extname(src).toLowerCase())) throw new Error('The event card must be an image: PNG or JPG.');
+  let dest = src;
+  if (prefs.files.copy && !inShowFolder(src)) {
+    const folder = prefs.center.folder;
+    await fs.promises.mkdir(folder, { recursive: true });
+    dest = path.join(folder, nameInFolder(folder, path.basename(src)) || path.basename(src));
+    await fs.promises.copyFile(src, dest); // a new card with the same name takes the old one's place
+  }
+  ts.card = dest;
+  showChanged();
+  return { card: path.basename(dest) };
+}
+
+// content: 'timer', 'clock' (time of day) or 'card' (the event card).
 function setTimerScreenForced(on, content) {
   const rt = state.timerScreen;
   // Asking for the other content while it is already up switches it instead of hiding it.
   const switching = on === undefined && rt.forced && content && content !== rt.forcedContent;
   const was = rt.forced;
   rt.forced = switching ? true : on === undefined ? !rt.forced : !!on;
-  if (content) rt.forcedContent = content;
+  if (content) rt.forcedContent = CONTENTS.includes(content) ? content : 'timer';
   else if (rt.forced && !was) rt.forcedContent = 'timer'; // turned on without saying what: the timer
   broadcast();
 }
@@ -888,6 +943,26 @@ const manageActions = {
     showChanged();
     return {};
   },
+  // The event card, sent by a Command Center (the file is in the show folder already), or taken away.
+  cardExtensions: CARD_EXT,
+  setCard: (file) => setCard(file),
+  cardPath() {
+    const f = cardFile();
+    if (!f) throw Object.assign(new Error('This computer has no event card.'), { code: 404 });
+    return f;
+  },
+  // Which screen the slideshows go to: 'auto' (the app chooses), 'window' (program window), or a screen's id.
+  setOutput(body) {
+    const v = body && body.output;
+    if (v === 'auto' || v === 'window') show.settings.defaultOutput = v;
+    else {
+      const d = listDisplays().find((x) => String(x.id) === String(v));
+      if (!d) throw Object.assign(new Error('That screen is not connected to this computer any more.'), { code: 404 });
+      show.settings.defaultOutput = { id: d.id, label: d.label, width: d.bounds.width, height: d.bounds.height };
+    }
+    showChanged();
+    return {};
+  },
   setTimerPresets(body) {
     const list = cleanPresets(body && body.presets);
     if (!list) throw Object.assign(new Error('Send { presets: [{ name, minutes }] }'), { code: 400 });
@@ -897,8 +972,29 @@ const manageActions = {
   },
   timerScreenConfig(patch) {
     const ts = show.settings.timerScreen;
-    if (['off', 'timer', 'clock'].includes(patch.idle)) ts.idle = patch.idle;
+    if (['off', 'timer', 'clock', 'card'].includes(patch.idle)) ts.idle = patch.idle;
     if ('livePip' in patch) ts.livePip = !!patch.livePip;
+    // Where the small timer sits and how big it is: centre x, y and height h, as parts of the screen (0 to 1).
+    if (patch.pip && typeof patch.pip === 'object') {
+      const num = (v, lo, hi, cur) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Math.min(hi, Math.max(lo, Number(v))) : cur);
+      ts.pip.x = num(patch.pip.x, 0, 1, ts.pip.x);
+      ts.pip.y = num(patch.pip.y, 0, 1, ts.pip.y);
+      // place: one of nine places on the screen (t/m/b + l/c/r). The box is tucked into it with a small gap, worked
+      // out here because only this computer knows its screen. A new size keeps the place the box is in.
+      const cell = () => `${ts.pip.y < 1 / 3 ? 't' : ts.pip.y > 2 / 3 ? 'b' : 'm'}${ts.pip.x < 1 / 3 ? 'l' : ts.pip.x > 2 / 3 ? 'r' : 'c'}`;
+      const place = /^[tmb][lcr]$/.test(String(patch.pip.place)) ? patch.pip.place : 'h' in patch.pip ? cell() : null;
+      ts.pip.h = num(patch.pip.h, 0.04, 0.5, ts.pip.h);
+      if (place) {
+        const d = timerScreenDisplay();
+        const halfW = (2.1 * ts.pip.h * (d.bounds.height / d.bounds.width)) / 2; // the box is about 2.1 times as wide as high
+        const halfH = ts.pip.h / 2;
+        const gap = 0.03;
+        ts.pip.x = place[1] === 'l' ? gap + halfW : place[1] === 'r' ? 1 - gap - halfW : 0.5;
+        ts.pip.y = place[0] === 't' ? gap * 1.6 + halfH : place[0] === 'b' ? 1 - gap * 1.6 - halfH : 0.5;
+      }
+      if (['solid', 'glass', 'none'].includes(patch.pip.bg)) ts.pip.bg = patch.pip.bg;
+      if (['timer', 'clock'].includes(patch.pip.content)) ts.pip.content = patch.pip.content;
+    }
     if ('showClock' in patch) ts.showClock = !!patch.showClock;
     if ('title' in patch) ts.title = String(patch.title || '').slice(0, 60);
     showChanged();
@@ -1089,6 +1185,9 @@ async function stopAll() {
     setMessage(`Stop: ${presenters.APPS[failed.app] ? presenters.APPS[failed.app].name : failed.app} answered with an error (${failed.error}). Check the output screen.`, 'warn');
   }
   state.liveCueId = null; state.live = null; registerShortcuts(); broadcast();
+  // Stop ends the slideshow; the presentation itself would stay open in its app, and after fifteen cues there
+  // are fifteen open windows. Close the one that was live (the app stays open, ready for the next cue).
+  if (live && live.app !== 'pdf' && show.settings.closeOnStop !== false) await presenters.close(live.app, live.file).catch(() => {});
 }
 
 async function navSlide(dir) {
@@ -1207,7 +1306,10 @@ function onMainState(main) {
     const offset = (main.now || Date.now()) - Date.now();
     state.timer = { ...main.timer, endsAt: main.timer.endsAt ? main.timer.endsAt - offset : null };
     state.stageMessage = main.stageMessage || { text: '', flash: false };
-    if (main.timerScreen) state.timerScreen.forced = !!main.timerScreen.forced;
+    if (main.timerScreen) {
+      state.timerScreen.forced = !!main.timerScreen.forced;
+      if (main.timerScreen.forced && CONTENTS.includes(main.timerScreen.content)) state.timerScreen.forcedContent = main.timerScreen.content;
+    }
     changed = true;
   }
   const want = main.live ? localCueFor(main.live) : null;
@@ -1353,7 +1455,13 @@ function remoteState() {
     timerScreen: {
       mode: state.timerScreen.mode, content: state.timerScreen.content, forced: !!state.timerScreen.forced,
       idle: show.settings.timerScreen.idle, livePip: !!show.settings.timerScreen.livePip,
+      card: cardFile() ? path.basename(cardFile()) : '',
+      note: state.timerScreen.note || null,
+      pip: { x: show.settings.timerScreen.pip.x, y: show.settings.timerScreen.pip.y, h: show.settings.timerScreen.pip.h },
     },
+    // The screens of this computer and the one the slideshows go to, so a Command Center can choose it.
+    outputs: listDisplays().map((d) => ({ id: d.id, label: d.label, primary: d.primary, internal: d.internal, width: d.bounds.width, height: d.bounds.height })),
+    output: outputState(),
     player: { id: prefs.center.id, name: playerName(), platform: process.platform, version: app.getVersion() },
     manage: { accept: !!prefs.center.accept, keyRequired: !!prefs.center.key },
     update: updateSummary(),
@@ -1464,7 +1572,19 @@ function setupIpc() {
     return r.canceled ? null : r.filePaths[0];
   });
   ipcMain.handle('center:openFolder', () => { fs.mkdirSync(prefs.center.folder, { recursive: true }); return shell.openPath(prefs.center.folder); });
-  ipcMain.handle('timerscreen:force', () => setTimerScreenForced(!state.timerScreen.forced, 'timer'));
+  // The Full screen button (timer) and the Event card button: each puts its own thing up, or takes it down again.
+  ipcMain.handle('timerscreen:force', (_e, content) => {
+    const rt = state.timerScreen;
+    const card = content === 'card';
+    const up = rt.forced && (rt.forcedContent === 'card') === card;
+    setTimerScreenForced(!up, card ? 'card' : 'timer');
+  });
+  ipcMain.handle('card:choose', async () => {
+    const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'Images', extensions: CARD_EXT.map((e) => e.slice(1)) }] });
+    if (r.canceled || !r.filePaths[0]) return { canceled: true };
+    return setCard(r.filePaths[0]).catch((e) => ({ error: e.message }));
+  });
+  ipcMain.handle('card:clear', () => setCard(''));
   ipcMain.handle('timerscreen:preview', (_e, on) => { state.timerScreen.preview = !!on; broadcast(); });
   ipcMain.handle('midi:get', () => prefs.midi);
   ipcMain.handle('midi:set', (_e, config) => { prefs.midi = { ...DEFAULT_MIDI, ...config }; autosave(); return prefs.midi; });

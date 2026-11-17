@@ -278,6 +278,10 @@ body.locked .add-tile { display: none; }
 .preset-row span { color: var(--muted); }
 .timer-screen { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .timer-screen .btn { padding: 9px 8px; }
+.timer-screen .btn.wide { grid-column: 1 / -1; }
+.ts-card { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ts-card-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.ts-card-name.set { color: var(--text); }
 #timerFullBtn.on { background: var(--armed); border-color: var(--armed); color: #000; }
 .rail-note { font-size: 15px; color: var(--muted); line-height: 1.3; }
 .rail-note:empty { display: none; }

@@ -379,14 +379,17 @@ function tsSaveSoon() {
 function renderTimerScreenStatus() {
   const rt = runtime.timerScreen || {};
   const btn = $('timerFullBtn');
-  btn.classList.toggle('on', !!rt.forced);
-  btn.textContent = rt.forced ? 'Exit full screen' : 'Full screen';
+  const cardUp = !!rt.forced && rt.forcedContent === 'card';
+  btn.classList.toggle('on', !!rt.forced && !cardUp);
+  btn.textContent = rt.forced && !cardUp ? 'Exit full screen' : 'Full screen';
+  $('cardFullBtn').classList.toggle('on', cardUp);
+  $('cardFullBtn').textContent = cardUp ? 'Hide the card' : 'Event card';
   const where = rt.display ? rt.display.label : 'the output';
   const el = $('timerScreenStatus');
   el.className = `rail-note${rt.note ? ' warn' : ''}`;
   el.textContent = rt.note
     ? rt.note
-    : rt.mode === 'full' ? `${rt.content === 'clock' ? 'Current time' : 'Timer'} is full screen on ${where}.`
+    : rt.mode === 'full' ? `${rt.content === 'card' ? 'The event card' : rt.content === 'clock' ? 'Current time' : 'Timer'} is full screen on ${where}.`
       : rt.mode === 'pip' ? `Overlay is showing on ${where}.` : '';
 }
 
@@ -419,6 +422,9 @@ function renderTimerScreenModal() {
     + displays.map((d, i) => `<option value="${d.id}"${current && current.id === d.id ? ' selected' : ''}>${esc(displayName(d, i))}</option>`).join('')
     + (current && !displays.some((d) => d.id === current.id) ? `<option value="missing" selected>⚠ ${esc(current.label)} (not connected)</option>` : '');
   $('tsIdle').value = c.idle;
+  $('tsCardName').textContent = c.card ? baseName(c.card) : 'No image yet';
+  $('tsCardName').classList.toggle('set', !!c.card);
+  $('tsCardClear').hidden = !c.card;
   if (document.activeElement !== $('tsTitle')) $('tsTitle').value = c.title || '';
   $('tsClock').checked = !!c.showClock;
   $('tsClock').disabled = c.idle === 'clock';
@@ -434,6 +440,20 @@ function renderTimerScreenModal() {
 
 function setupTimerScreen() {
   $('timerFullBtn').onclick = () => api.timerScreenForce();
+  // The event card. main sends the changed show back, so only the answer's error is handled here.
+  const chooseCard = async () => {
+    const r = await api.cardChoose();
+    if (r && r.error) flash(r.error, 'error');
+    if (!$('timerScreenModal').hidden) renderTimerScreenModal();
+    return !!(r && r.card);
+  };
+  $('cardFullBtn').onclick = async () => {
+    const up = (runtime.timerScreen || {}).forced && (runtime.timerScreen || {}).forcedContent === 'card';
+    if (!up && !tsCfg().card && !(await chooseCard())) return; // no image yet: choose one first
+    api.timerScreenForce('card');
+  };
+  $('tsCardChoose').onclick = chooseCard;
+  $('tsCardClear').onclick = async () => { await api.cardClear(); renderTimerScreenModal(); };
   $('timerScreenBtn').onclick = () => { $('timerScreenModal').hidden = false; renderTimerScreenModal(); };
   const closeModal = () => { $('timerScreenModal').hidden = true; api.timerScreenPreview(false); };
   $('tsClose').onclick = closeModal;
@@ -445,7 +465,11 @@ function setupTimerScreen() {
     if (e.target.value !== 'missing') tsCfg().display = d ? outputRef(d) : 'output';
     save();
   };
-  $('tsIdle').onchange = (e) => { tsCfg().idle = e.target.value; save(); };
+  $('tsIdle').onchange = async (e) => {
+    // "The event card" without an image: ask for it now, and leave the choice as it was if none is given.
+    if (e.target.value === 'card' && !tsCfg().card && !(await chooseCard())) { renderTimerScreenModal(); return; }
+    tsCfg().idle = e.target.value; save();
+  };
   $('tsTitle').oninput = (e) => { tsCfg().title = e.target.value; tsSaveSoon(); };
   $('tsClock').onchange = (e) => { tsCfg().showClock = e.target.checked; save(); };
   $('tsLivePip').onchange = (e) => { tsCfg().livePip = e.target.checked; save(); };
@@ -783,6 +807,7 @@ function renderSettings() {
   const s = show.settings;
   $('setPptApp').innerHTML = appOptions(s.pptApp, `Auto: first installed (${appInfo(env.pptApp).name})`);
   $('setClosePrev').checked = !!s.closePrevious;
+  $('setCloseStop').checked = s.closeOnStop !== false;
   $('setTimerAuto').checked = s.timerAutoStart !== false;
   $('setNewer').value = s.newerVersions || 'ask';
   $('setBackdrop').checked = !!s.backdropDuringChangeover;
@@ -1445,6 +1470,7 @@ function setupEditor() {
   $('setPptApp').onchange = async (e) => { show.settings.pptApp = e.target.value; await api.updateShow(show); env = await api.env(); render(); };
   $('setTimerAuto').onchange = (e) => { show.settings.timerAutoStart = e.target.checked; commit(); };
   $('setClosePrev').onchange = (e) => { show.settings.closePrevious = e.target.checked; commit(); };
+  $('setCloseStop').onchange = (e) => { show.settings.closeOnStop = e.target.checked; commit(); };
   $('setBackdrop').onchange = (e) => { show.settings.backdropDuringChangeover = e.target.checked; commit(); };
   $('setRefocus').onchange = (e) => { show.settings.refocusAfterFire = e.target.checked; commit(); };
 

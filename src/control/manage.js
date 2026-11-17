@@ -13,7 +13,11 @@
 //   POST /api/cue/<ref>/delete
 //   POST /api/cues/clear                   empty the list (refused while something is live)
 //   GET  /api/cue/<ref>/download           the cue's file, to copy this list to another computer
-//   POST /api/timerscreen/config           { idle, livePip, title, showClock }
+//   POST /api/timerscreen/config           { idle, livePip, title, showClock, pip: { x, y, h, bg, content } }
+//   PUT  /api/card/<name>                  body = an image; it becomes this computer's event card
+//   POST /api/card/clear                   take the event card away
+//   GET  /api/card                         the event card's image, to copy a show to another computer
+//   POST /api/output                       { output: 'auto' | 'window' | <screen id from /api/state outputs> }
 //   POST /api/timer/presets                { presets: [{ name, minutes }] }   the saved timers
 //   POST /api/update/install               update this computer now (refused while a show runs); answers at once
 //   PUT  /api/update/package/<file>        body = the build; headers X-Update-List (base64 of update.json) and
@@ -24,6 +28,7 @@ const path = require('path');
 const MAX_JSON = 1024 * 1024;
 const MAX_FILE = 32 * 1024 * 1024 * 1024;
 const MAX_UPDATE = 1024 * 1024 * 1024;
+const MAX_CARD = 64 * 1024 * 1024;
 
 function fail(code, message) {
   return Object.assign(new Error(message), { code });
@@ -53,6 +58,14 @@ function createManage({ getConfig, extensions, actions }) {
     return name;
   }
 
+  // The event card is an image, not a presentation.
+  function safeImage(raw) {
+    const name = path.basename(String(raw).replace(/\\/g, '/')).replace(/[\u0000-\u001f<>:"|?*]/g, '_').trim();
+    if (!name || name.startsWith('.')) throw fail(400, 'Invalid file name');
+    if (!actions.cardExtensions.includes(path.extname(name).toLowerCase())) throw fail(415, `The event card must be an image (PNG or JPG): ${name}`);
+    return name;
+  }
+
   function received(name) {
     const safe = safeName(name);
     const existing = actions.nameInFolder(safe);
@@ -60,7 +73,7 @@ function createManage({ getConfig, extensions, actions }) {
     return path.join(getConfig().folder, existing);
   }
 
-  function saveFile(req, name) {
+  function saveFile(req, name, max = MAX_FILE) {
     const { folder } = getConfig();
     fs.mkdirSync(folder, { recursive: true });
     // "deck.pptx" must not become a second file beside "Deck.pptx", nor silently overwrite it.
@@ -71,7 +84,7 @@ function createManage({ getConfig, extensions, actions }) {
       const out = fs.createWriteStream(part);
       let size = 0;
       const abort = (err) => { out.destroy(); fs.rm(part, { force: true }, () => {}); reject(err); };
-      req.on('data', (c) => { size += c.length; if (size > MAX_FILE) { req.destroy(); abort(fail(413, 'File too large')); } });
+      req.on('data', (c) => { size += c.length; if (size > max) { req.destroy(); abort(fail(413, 'File too large')); } });
       req.on('error', abort);
       req.on('aborted', () => abort(fail(400, 'Upload interrupted')));
       out.on('error', (e) => abort(fail(500, `Could not write the file: ${e.message}`)));
@@ -132,9 +145,13 @@ function createManage({ getConfig, extensions, actions }) {
     const isCueEdit = req.method === 'POST' && a === 'cue' && b && ['file', 'update', 'move', 'delete'].includes(c);
     const isTimerCfg = req.method === 'POST' && a === 'timerscreen' && b === 'config' && !c;
     const isPresets = req.method === 'POST' && a === 'timer' && b === 'presets' && !c;
+    const isCard = req.method === 'PUT' && a === 'card' && b && !c;
+    const isCardClear = req.method === 'POST' && a === 'card' && b === 'clear' && !c;
+    const isCardGet = req.method === 'GET' && a === 'card' && !b;
+    const isOutput = req.method === 'POST' && a === 'output' && !b;
     const isUpdateInstall = req.method === 'POST' && a === 'update' && b === 'install' && !c;
     const isUpdatePackage = req.method === 'PUT' && a === 'update' && b === 'package' && c && parts.length === 4;
-    if (!isFile && !isFileCheck && !isCueAdd && !isCueEdit && !isTimerCfg && !isPresets && !isClear && !isDownload && !isUpdateInstall && !isUpdatePackage) return false;
+    if (!isFile && !isFileCheck && !isCueAdd && !isCueEdit && !isTimerCfg && !isPresets && !isClear && !isDownload && !isUpdateInstall && !isUpdatePackage && !isCard && !isCardClear && !isCardGet && !isOutput) return false;
 
     const answer = (work) => {
       Promise.resolve().then(work).then((r) => send(res, 200, { ok: true, ...(r || {}) }))
@@ -143,9 +160,12 @@ function createManage({ getConfig, extensions, actions }) {
     if (!cfg.accept) { req.resume(); send(res, 403, { ok: false, error: 'This computer does not accept a Command Center. Turn it on in its Settings.' }); return true; }
     if (!keyOk) { req.resume(); send(res, 401, { ok: false, error: 'Wrong network key.' }); return true; }
 
-    if (isDownload) {
+    if (isCard) { answer(async () => { const saved = await saveFile(req, safeImage(decodeURIComponent(b)), MAX_CARD); return actions.setCard(saved.path); }); return true; }
+    if (isCardClear) { answer(() => { req.resume(); return actions.setCard(''); }); return true; }
+    if (isOutput) { answer(async () => actions.setOutput(await readJson(req))); return true; }
+    if (isDownload || isCardGet) {
       try {
-        const file = actions.cuePath(decodeURIComponent(b));
+        const file = isCardGet ? actions.cardPath() : actions.cuePath(decodeURIComponent(b));
         const st = fs.statSync(file);
         res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': st.size, 'X-File-Name': encodeURIComponent(path.basename(file)), 'X-File-Date': String(Math.round(st.mtimeMs)) });
         fs.createReadStream(file).pipe(res);

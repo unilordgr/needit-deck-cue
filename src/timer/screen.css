@@ -23,6 +23,10 @@ html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
 .full .clock { font: 600 min(4vw, 7vh)/1 "Barlow Semi Condensed", sans-serif; color: #8a8f98; font-variant-numeric: tabular-nums; }
 .full .hint { position: fixed; bottom: 3vh; font: 600 16px "Barlow Semi Condensed", sans-serif; color: #8a8f98; }
 body[data-click] { cursor: pointer; }
+/* The event card fills the screen without being cut or stretched; the figures step aside for it. */
+.full .card { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.full[data-card] .title, .full[data-card] .time, .full[data-card] .clock { display: none; }
+.full[data-card] .hint { z-index: 1; padding: 4px 10px; border-radius: 6px; background: rgba(0, 0, 0, .6); color: #fff; }
 
 /* ---------- corner overlay ----------
    The box's font-size is its height in px; everything inside is sized in em, so the layout editor's

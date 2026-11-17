@@ -178,7 +178,42 @@ function toggleLink(id) {
 // ---------- rendering ----------
 function screenMode(s) {
   const ts = s.timerScreen || {};
-  return ts.forced ? (ts.content === 'clock' ? 'clock' : 'timer') : 'slides';
+  return ts.forced ? (['clock', 'card'].includes(ts.content) ? ts.content : 'timer') : 'slides';
+}
+
+// ---------- event card, small timer, output ----------
+// Choose an image and send it to the computer (and the ones linked to it) as its event card.
+async function sendCard(id) {
+  const file = await window.center.pickCard();
+  if (!file) return false;
+  const targets = group(id);
+  const results = await Promise.all(targets.map((n) => window.center.sendCard(n.id, file)));
+  const failed = results.map((r, i) => (r.ok ? null : `${targets[i].name}: ${r.error || 'the image was not sent'}`)).filter(Boolean);
+  if (failed.length) notice(failed.join('\n'));
+  return !failed.length;
+}
+
+// Nine places for the small timer, and three sizes (its height as a part of the screen's height).
+const PLACES = [['t', 'Top'], ['m', 'Middle'], ['b', 'Bottom']].flatMap(([v, vn]) => [['l', 'left'], ['c', 'centre'], ['r', 'right']].map(([h, hn]) => ({ id: v + h, name: v === 'm' && h === 'c' ? 'Centre of the screen' : `${vn} ${hn}` })));
+const SIZES = [{ id: 'S', h: 0.08, name: 'Small' }, { id: 'M', h: 0.12, name: 'Medium' }, { id: 'L', h: 0.18, name: 'Large' }];
+function pipCell(ts) {
+  const p = ts.pip || { x: 0.9, y: 0.1 };
+  return `${p.y < 1 / 3 ? 't' : p.y > 2 / 3 ? 'b' : 'm'}${p.x < 1 / 3 ? 'l' : p.x > 2 / 3 ? 'r' : 'c'}`;
+}
+function pipSize(ts) {
+  const h = (ts.pip || {}).h || 0.12;
+  return SIZES.reduce((best, z) => (Math.abs(z.h - h) < Math.abs(best.h - h) ? z : best), SIZES[1]).h;
+}
+// The screens of one computer, as its own Deck Cue names them.
+function outputOptions(s) {
+  const outs = s.outputs || [];
+  const cur = s.output || 'auto';
+  const chosen = typeof cur === 'object' ? cur : null;
+  let html = `<option value="auto"${cur === 'auto' ? ' selected' : ''}>Let the app choose</option>`;
+  html += outs.map((d, i) => `<option value="${esc(String(d.id))}"${chosen && chosen.id === d.id ? ' selected' : ''}>${esc(`Screen ${i + 1}: ${d.label || 'Display'}${d.internal ? ' (built in)' : d.primary ? ' (main)' : ''}, ${d.width}×${d.height}`)}</option>`).join('');
+  if (chosen && chosen.id === null) html += `<option value="missing" selected>${esc(`${chosen.label} (not connected)`)}</option>`;
+  html += `<option value="window"${cur === 'window' ? ' selected' : ''}>Program window (for NDI / OBS)</option>`;
+  return html;
 }
 
 // ---------- updates ----------
@@ -345,6 +380,7 @@ function cardHtml(n) {
         <button data-screen="slides" class="${mode === 'slides' ? 'on' : ''}">Slides</button>
         <button data-screen="timer" class="${mode === 'timer' ? 'on' : ''}">Timer</button>
         <button data-screen="clock" class="${mode === 'clock' ? 'on' : ''}">Clock</button>
+        <button data-screen="card" class="${mode === 'card' ? 'on' : ''}" title="${ts.card ? `The event card: ${esc(ts.card)}` : 'The event card: an image for the screen, for example the event’s logo slide. Click to choose it.'}">Card</button>
       </div></div>
       <div class="pc-timer">
         <span class="t" data-timer></span>
@@ -373,8 +409,21 @@ function cardHtml(n) {
           <option value="off"${ts.idle === 'off' ? ' selected' : ''}>Nothing</option>
           <option value="timer"${ts.idle === 'timer' ? ' selected' : ''}>The timer</option>
           <option value="clock"${ts.idle === 'clock' ? ' selected' : ''}>The current time</option>
+          <option value="card"${ts.idle === 'card' ? ' selected' : ''}>The event card</option>
         </select></div>
+      ${ts.note ? `<div class="line why">${esc(ts.note)}</div>` : ''}
+      <div class="line"><span>Event card</span>
+        <span class="card-name${ts.card ? ' set' : ''}" title="${esc(ts.card || '')}">${esc(ts.card || 'No image yet')}</span>
+        <button class="btn small" data-act="card-pick" ${manage ? '' : 'disabled'} title="An image for the screen, for example the event’s logo slide (PNG or JPG, ideally the size of the screen)">${ts.card ? 'Change' : 'Choose image'}</button>
+        ${ts.card ? `<button class="btn ghost small" data-act="card-clear" ${manage ? '' : 'disabled'} title="Take the event card away from this computer" aria-label="Remove the event card">✕</button>` : ''}</div>
       <div class="line"><label class="check"><input type="checkbox" data-pip ${ts.livePip ? 'checked' : ''} ${manage ? '' : 'disabled'}><span>Small timer on top of the slides</span></label></div>
+      <div class="line"><span>Small timer place and size</span>
+        <div class="pip-set">
+          <div class="pos-grid" role="group" aria-label="Where the small timer sits on the screen">${PLACES.map((p) => `<button data-place="${p.id}" class="${pipCell(ts) === p.id ? 'on' : ''}" title="${p.name}" aria-label="${p.name}" ${manage ? '' : 'disabled'}></button>`).join('')}</div>
+          <div class="seg sizes" role="group" aria-label="Size of the small timer">${SIZES.map((z) => `<button data-size="${z.h}" class="${pipSize(ts) === z.h ? 'on' : ''}" title="${z.name}" ${manage ? '' : 'disabled'}>${z.id}</button>`).join('')}</div>
+        </div></div>
+      <div class="line"><span>Slideshows go to</span>
+        <select data-output ${manage ? '' : 'disabled'} title="The screen of this computer that the slideshows (and the timer and the card) appear on">${outputOptions(s)}</select></div>
       <div class="line"><span>Black screen</span><button class="btn black small${s.blackout ? ' on' : ''}" data-act="blackout">${s.blackout ? 'Blackout is on' : 'Blackout'}</button></div>
     </details>`;
 }
@@ -382,7 +431,7 @@ function cardHtml(n) {
 // Everything that changes what a card looks like (the running timer is drawn separately by tick()).
 function signature(n) {
   const s = n.state;
-  return JSON.stringify([updateSig(n), linked.has(n.id), linked.has(n.id) && listsDiffer(), linked.has(n.id) && nextDiffers(), n.clash, n.name, n.online, n.manage, n.keyOk, n.platform, s && [s.show, s.live, s.next, s.blackout, s.timerScreen, s.timer.running, s.timerPresets, s.cues, s.message, s.messageLevel]]);
+  return JSON.stringify([updateSig(n), linked.has(n.id), linked.has(n.id) && listsDiffer(), linked.has(n.id) && nextDiffers(), n.clash, n.name, n.online, n.manage, n.keyOk, n.platform, s && [s.show, s.live, s.next, s.blackout, s.timerScreen, s.outputs, s.output, s.timer.running, s.timerPresets, s.cues, s.message, s.messageLevel]]);
 }
 
 function render() {
@@ -457,9 +506,16 @@ board.addEventListener('click', async (e) => {
   if (screen) {
     const mode = screen.dataset.screen;
     if (mode === 'slides') actGroup(id, '/api/timerscreen?state=off');
-    else actGroup(id, `/api/timerscreen?state=on&content=${mode}`);
+    else if (mode === 'card' && !group(id).every((x) => x.state && x.state.timerScreen && x.state.timerScreen.card)) {
+      // No image on (one of) the computers yet: choose it, send it, then show it.
+      if (await sendCard(id)) actGroup(id, '/api/timerscreen?state=on&content=card');
+    } else actGroup(id, `/api/timerscreen?state=on&content=${mode}`);
     return;
   }
+  const place = e.target.closest('[data-place]');
+  if (place) { actGroup(id, '/api/timerscreen/config', { pip: { place: place.dataset.place } }); return; }
+  const size = e.target.closest('[data-size]');
+  if (size) { actGroup(id, '/api/timerscreen/config', { pip: { h: Number(size.dataset.size) } }); return; }
   const preset = e.target.closest('[data-preset]');
   if (preset) {
     // The saved timers can differ between computers, so the others get the time itself, not "timer number 3".
@@ -519,6 +575,10 @@ board.addEventListener('click', async (e) => {
     } else if (a === 'pick') {
       const files = await window.center.pickFiles();
       if (files.length) send(id, files, null);
+    } else if (a === 'card-pick') {
+      sendCard(id);
+    } else if (a === 'card-clear') {
+      actGroup(id, '/api/card/clear');
     } else if (a === 'remove') {
       window.center.remove(id);
     }
@@ -551,7 +611,15 @@ board.addEventListener('focusout', () => setTimeout(render, 0)); // catch up on 
 board.addEventListener('change', (e) => {
   const card = e.target.closest('.pc');
   if (!card) return;
-  if (e.target.matches('[data-idle]')) actGroup(card.dataset.id, '/api/timerscreen/config', { idle: e.target.value });
+  if (e.target.matches('[data-idle]')) {
+    const id = card.dataset.id;
+    const value = e.target.value;
+    // "The event card" on computers that have no image yet: choose it first.
+    const ready = value !== 'card' || group(id).every((n) => n.state && n.state.timerScreen && n.state.timerScreen.card) ? Promise.resolve(true) : sendCard(id);
+    ready.then((ok) => { if (ok) actGroup(id, '/api/timerscreen/config', { idle: value }); else { signatures.delete(id); render(); } }); // no image chosen: show the old choice again
+  }
+  // The screens belong to that one computer, so this is never passed on to the linked ones.
+  if (e.target.matches('[data-output]') && e.target.value !== 'missing') act(card.dataset.id, '/api/output', { output: e.target.value });
   if (e.target.matches('[data-pip]')) actGroup(card.dataset.id, '/api/timerscreen/config', { livePip: e.target.checked });
   if (e.target.matches('[data-cue-timer]')) {
     const n = nodeById(card.dataset.id);
