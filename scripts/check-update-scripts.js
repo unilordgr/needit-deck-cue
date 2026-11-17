@@ -9,6 +9,7 @@ const { PORTABLE_BAT, MAC_SWAP } = require('../src/update-scripts');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'needit update test '));
 const fail = (msg) => { console.error(`FAIL  ${msg}`); process.exit(1); };
 
+(async () => {
 if (process.platform === 'win32') {
   // A path with a space, an ampersand and a percent sign: the things that break batch files.
   const folder = path.join(dir, 'Show & Tell 100%');
@@ -32,9 +33,15 @@ if (process.platform === 'win32') {
   fs.writeFileSync(next, 'newer');
   fs.writeFileSync(bat, PORTABLE_BAT, 'ascii');
   const { spawn } = require('child_process');
-  const lock = spawn('powershell.exe', ['-NoProfile', '-Command', "$f = [IO.File]::Open($env:LOCK_FILE, 'Open', 'ReadWrite', 'None'); 'locked'; Start-Sleep -Seconds 4; $f.Close()"], { env: { ...process.env, LOCK_FILE: cur }, stdio: ['ignore', 'pipe', 'ignore'] });
-  const locked = spawnSync('powershell.exe', ['-NoProfile', '-Command', "for ($i = 0; $i -lt 50; $i++) { try { $f = [IO.File]::Open($env:LOCK_FILE, 'Open', 'ReadWrite', 'None'); $f.Close(); Start-Sleep -Milliseconds 200 } catch { 'locked'; break } }"], { env: { ...process.env, LOCK_FILE: cur }, encoding: 'utf8' });
-  if (!/locked/.test(locked.stdout || '')) fail('could not lock the test file');
+  const lock = spawn('powershell.exe', ['-NoProfile', '-Command', "$f = [IO.File]::Open($env:LOCK_FILE, 'Open', 'ReadWrite', 'None'); 'locked'; Start-Sleep -Seconds 5; $f.Close()"], { env: { ...process.env, LOCK_FILE: cur }, stdio: ['ignore', 'pipe', 'ignore'] });
+  // PowerShell can take many seconds to start on a busy build machine: wait until it says it holds the file.
+  const locked = await new Promise((resolve) => {
+    let out = '';
+    const giveUp = setTimeout(() => resolve(false), 120000);
+    lock.stdout.on('data', (d) => { out += d; if (/locked/.test(out)) { clearTimeout(giveUp); resolve(true); } });
+    lock.on('exit', () => { clearTimeout(giveUp); resolve(/locked/.test(out)); });
+  });
+  if (!locked) fail('the test could not lock its own file (this is the test, not the update script)');
   const started = Date.now();
   const r2 = spawnSync('cmd.exe', ['/c', bat], { env: { ...process.env, NEW_EXE: next, CUR_EXE: cur, RELAUNCH: '0' }, timeout: 90000, stdio: 'ignore', windowsHide: true });
   lock.kill();
@@ -65,3 +72,4 @@ if (process.platform === 'win32') {
   console.log('skip  no update helper for this system');
 }
 fs.rmSync(dir, { recursive: true, force: true });
+})();
