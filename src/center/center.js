@@ -181,6 +181,84 @@ function screenMode(s) {
   return ts.forced ? (['clock', 'card'].includes(ts.content) ? ts.content : 'timer') : 'slides';
 }
 
+// ---------- editing a presentation, and telling versions apart ----------
+let edits = []; // files open for editing on this computer: { key, nodeId, cueId, name, state, savedAt, sentAt, error }
+const editFor = (nodeId, cueId) => edits.find((e) => e.nodeId === nodeId && e.cueId === cueId);
+const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+// Fetch the cue's file from its computer and open it here. Changes saved here are sent with one click (sendEdit).
+async function editCue(id, c) {
+  let r = await window.center.editStart(id, c.id, false);
+  if (r.unsent) {
+    const ans = await choose({
+      title: 'You have changes that were not sent',
+      lines: [`${r.name} was changed on this computer and has not been sent to the show computers yet.`, 'Starting again fetches the file from the show computer and your changes here are lost.'],
+      buttons: [{ id: 'keep', label: 'Keep my changes', kind: 'go' }, { id: 'again', label: 'Start again' }, { id: 'cancel', label: 'Cancel', kind: 'ghost' }],
+    });
+    if (ans.id === 'cancel') return;
+    r = ans.id === 'again' ? await window.center.editStart(id, c.id, true) : await window.center.editOpen(`${id}|${c.id}`);
+  }
+  if (!r.ok) notice(r.error || 'The file could not be opened.');
+}
+
+// The saved file goes to this computer and to the linked ones that have the same presentation in that place.
+async function sendEdit(id, c) {
+  const e = editFor(id, c.id);
+  if (!e) return;
+  const all = group(id);
+  const targets = all.filter((n) => n.id === id || (n.state && sameCue(n.state.cues[c.number - 1], c)));
+  const skipped = all.filter((n) => !targets.includes(n)).map((n) => n.name);
+  const r = await window.center.editSend(e.key, targets.map((n) => n.id));
+  if (!r.ok) notice(r.error || 'The new version was not sent.');
+  else if (skipped.length) notice(`${skipped.join(' and ')} ${skipped.length === 1 ? 'has' : 'have'} a different cue ${c.number}, so the new version was not sent there.`);
+}
+
+// The line under a cue whose file is open for editing here.
+function editStrip(n, c) {
+  const e = editFor(n.id, c.id);
+  if (!e) return '';
+  const where = group(n.id).length > 1 ? 'the linked computers' : esc(n.name);
+  let text;
+  let buttons = '<button class="btn ghost small" data-act="edit-done" title="Stop watching this file. It stays in the Editing folder on this computer.">Done</button>';
+  if (e.state === 'fetching') { text = 'Fetching the file…'; buttons = ''; }
+  else if (e.state === 'sending') { text = 'Sending the new version…'; buttons = ''; }
+  else if (e.state === 'changed') {
+    text = `Saved here at ${clock(e.savedAt)}. Not on ${where} yet.${e.error ? ` ${esc(e.error)}` : ''}`;
+    buttons = `<button class="btn go small" data-act="edit-send">Send the new version</button>${buttons}`;
+  } else if (e.state === 'sent') text = `New version sent at ${clock(e.sentAt)}.${c.state === 'live' ? ' The live show still has the old one: play the cue again to show the new version.' : ''}`;
+  else text = 'Open on this computer. Change it, save it, then send it from here.';
+  return `<div class="c-edit ${e.state}"><span>${text}</span><span class="c-edit-btns">${buttons}</span></div>`;
+}
+
+// Linked computers that have the same cue in a place (same name, same file name) but not the same file: someone
+// changed the presentation on one of them. Computers that do not report a fingerprint yet are left out.
+function versionDiffs() {
+  const on = nodes.filter((n) => linked.has(n.id) && n.online && n.state);
+  if (on.length < 2) return [];
+  const out = [];
+  on[0].state.cues.forEach((c, i) => {
+    const there = on.map((n) => n.state.cues[i]);
+    if (!there.every((x) => sameCue(x, c)) || there.some((x) => !x.sig) || new Set(there.map((x) => x.sig)).size < 2) return;
+    let newest = 0;
+    there.forEach((x, k) => { if ((x.fileDate || 0) > (there[newest].fileDate || 0)) newest = k; });
+    out.push({ number: i + 1, name: c.name, source: on[newest].id, sourceName: on[newest].name, date: there[newest].fileDate, targets: on.filter((n, k) => there[k].sig !== there[newest].sig).map((n) => n.id) });
+  });
+  return out;
+}
+async function copyNewest() {
+  for (const d of versionDiffs()) {
+    const r = await window.center.copyVersion(d.source, d.number, d.targets);
+    if (!r.ok) { notice(r.error || 'The file was not copied.'); return; }
+  }
+}
+
+function versionBanner() {
+  const diffs = versionDiffs();
+  const d = diffs[0];
+  const more = diffs.length > 1 ? ` The same goes for ${diffs.length - 1} more.` : '';
+  return `<div class="pc-banner">The linked computers do not have the same file for cue ${d.number} “${esc(d.name)}”: it was changed on one of them. The newest is on ${esc(d.sourceName)}${d.date ? ` (saved ${clock(d.date)})` : ''}.${more} <button class="btn small" data-act="copy-version">Copy the newest to the others</button></div>`;
+}
+
 // ---------- event card, small timer, output ----------
 // Choose an image and send it to the computer (and the ones linked to it) as its event card.
 async function sendCard(id) {
@@ -329,6 +407,7 @@ function cardHtml(n) {
   else if (!n.keyOk) banner = 'This computer has a network key. Type the same key under Settings here.';
   else if (isLinked && listsDiffer()) banner = 'DIFFER';
   else if (isLinked && nextDiffers()) banner = 'NEXT';
+  else if (isLinked && versionDiffs().length) banner = 'VERSION';
   const clash = n.clash ? '<div class="pc-banner bad">Two computers are answering with this one\'s identity (their settings were copied from one to the other). Only one of them is shown here. On the copy, close Deck Cue, delete its settings folder and open it again.</div>' : '';
 
   if (!s) {
@@ -341,11 +420,13 @@ function cardHtml(n) {
   const mode = screenMode(s);
   const ts = s.timerScreen || {};
   const manage = canManage(n);
+  const differs = new Set(isLinked ? versionDiffs().map((d) => d.number) : []);
   const cues = s.cues.map((c) => `
     <li class="cue ${c.state}${c.missing ? ' missing' : ''}" data-cue="${esc(c.id)}" data-num="${c.number}" draggable="${manage}" style="--cue-color:${esc(c.color || '#3a3d43')}" title="Click to make this the next cue">
       <span class="n">${c.number}</span>
       <div class="c-name">${esc(c.name)}</div>
-      <div class="c-file" title="${esc(c.file || '')}">${c.missing ? 'Missing: ' : ''}${esc(c.file || 'No file')}${c.changed ? ', updated' : ''}</div>
+      <div class="c-file${differs.has(c.number) ? ' differs' : ''}" title="${esc(c.file || '')}">${c.missing ? 'Missing: ' : ''}${esc(c.file || 'No file')}${differs.has(c.number) ? ', not the same on all' : c.changed ? ', updated' : ''}</div>
+      <button class="btn ghost small" data-act="edit" ${manage && c.file && !c.missing ? '' : 'disabled'} title="Change this presentation: it opens on this computer; after you save it, one click sends the new version" aria-label="Edit this presentation">✎</button>
       <button class="btn small" data-act="fire" title="Play this cue now">Play</button>
       <button class="btn ghost small" data-act="del" ${manage ? '' : 'disabled'} title="Remove this cue from this computer" aria-label="Remove cue">✕</button>
       <div class="c-opts">
@@ -353,6 +434,7 @@ function cardHtml(n) {
         <label class="cue-timer" title="Timer for this presentation, in minutes. It starts by itself when the cue plays.">Timer
           <input data-cue-timer inputmode="decimal" value="${c.duration || ''}" placeholder="none" ${manage ? '' : 'disabled'}> min</label>
       </div>
+      ${editStrip(n, c)}
     </li>`).join('');
   const presets = (s.timerPresets || []).map((p, i) => `<button class="preset" data-preset="${i + 1}" title="Start a ${p.minutes}-minute timer${p.name ? ` (${esc(p.name)})` : ''}">${esc(`${p.name ? `${p.name} ` : ''}${p.minutes}`)}</button>`).join('');
 
@@ -364,6 +446,7 @@ function cardHtml(n) {
     ${banner === 'DIFFER'
     ? `<div class="pc-banner">The linked computers have different lists. They play by position, so they should match. ${s.cues.length ? '<button class="btn small" data-act="copy-from">Copy this list to the others</button>' : ''}</div>`
     : banner === 'NEXT' ? `<div class="pc-banner">The linked computers do not have the same cue next. GO plays the Next of the computer you press it on, on all of them. <button class="btn small" data-act="same-next">Make Next the same as here</button></div>`
+    : banner === 'VERSION' ? versionBanner()
     : banner ? `<div class="pc-banner">${esc(banner)}</div>` : ''}
     ${clash}
     ${s.message ? `<div class="pc-msg ${esc(s.messageLevel || 'info')}">${esc(s.message)}</div>` : ''}
@@ -431,7 +514,7 @@ function cardHtml(n) {
 // Everything that changes what a card looks like (the running timer is drawn separately by tick()).
 function signature(n) {
   const s = n.state;
-  return JSON.stringify([updateSig(n), linked.has(n.id), linked.has(n.id) && listsDiffer(), linked.has(n.id) && nextDiffers(), n.clash, n.name, n.online, n.manage, n.keyOk, n.platform, s && [s.show, s.live, s.next, s.blackout, s.timerScreen, s.outputs, s.output, s.timer.running, s.timerPresets, s.cues, s.message, s.messageLevel]]);
+  return JSON.stringify([updateSig(n), linked.has(n.id), linked.has(n.id) && listsDiffer(), linked.has(n.id) && nextDiffers(), n.clash, n.name, n.online, n.manage, n.keyOk, n.platform, edits.filter((e) => e.nodeId === n.id), linked.has(n.id) && versionDiffs(), s && [s.show, s.live, s.next, s.blackout, s.timerScreen, s.outputs, s.output, s.timer.running, s.timerPresets, s.cues, s.message, s.messageLevel]]);
 }
 
 function render() {
@@ -525,6 +608,7 @@ board.addEventListener('click', async (e) => {
     return;
   }
   if (e.target.closest('.cue-timer')) return; // typing in a cue's timer box, not choosing the cue
+  if (e.target.closest('.c-edit') && !e.target.closest('[data-act]')) return; // reading the editing line, not choosing the cue
   if (actEl) {
     const a = actEl.dataset.act;
     const c = row && n.state ? n.state.cues.find((x) => x.id === row.dataset.cue) : null;
@@ -568,6 +652,10 @@ board.addEventListener('click', async (e) => {
     else if (a === 'timer-plus') actGroup(id, '/api/timer/add?seconds=60');
     else if (a === 'presets') openPresets(id);
     else if (a === 'fire') actCue(id, c, 'fire');
+    else if (a === 'edit') editCue(id, c);
+    else if (a === 'edit-send') sendEdit(id, c);
+    else if (a === 'edit-done') { const e = editFor(id, c.id); if (e) window.center.editDone(e.key); }
+    else if (a === 'copy-version') copyNewest();
     else if (a === 'fs') actCue(id, c, 'update', { autoSlideshow: !c.fullscreen });
     else if (a === 'del') {
       const where = group(id).map((x) => x.name).join(' and ');
@@ -901,6 +989,8 @@ function setNodes(list) {
 }
 
 window.center.on('nodes', setNodes);
+window.center.on('edits', (list) => { edits = list; render(); });
+window.center.edits().then((list) => { edits = list; render(); });
 // This Command Center's own update state; it also tells the cards which version is the newest.
 async function setUpdate(u) {
   selfUpdate = u;

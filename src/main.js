@@ -715,6 +715,30 @@ function hashFile(file) {
   });
 }
 
+// A short fingerprint of a cue's file, so a Command Center can tell whether two computers really have the same
+// presentation: the name does not say, and someone may have changed it on one of them. It is worked out in the
+// background, one file at a time, and remembered until the file changes. Very large files are told apart by size
+// and date instead of being read through.
+const sigCache = new Map(); // path -> { stamp, sig, retryAt }
+let sigQueue = Promise.resolve();
+function fileSig(file) {
+  const stamp = fileStamp(file);
+  if (!stamp) return null;
+  const known = sigCache.get(file);
+  if (known && known.stamp === stamp && !(known.retryAt && Date.now() > known.retryAt)) return known.sig;
+  const entry = { stamp, sig: null, retryAt: 0 };
+  sigCache.set(file, entry);
+  const [mtime, size] = stamp.split(':').map(Number);
+  if (size > 512 * 1024 * 1024) { entry.sig = `big-${size}-${Math.round(mtime / 2000)}`; return entry.sig; }
+  sigQueue = sigQueue.then(() => hashFile(file)).then((h) => {
+    if (sigCache.get(file) !== entry) return;
+    if (fileStamp(file) !== stamp) { sigCache.delete(file); return; } // it changed while it was being read
+    entry.sig = h.slice(0, 16);
+    if (control) control.update();
+  }).catch(() => { entry.retryAt = Date.now() + 5000; }); // in use just now: try again in a while
+  return null;
+}
+
 async function sameContent(a, b) {
   const [sa, sb] = [fs.statSync(a), fs.statSync(b)];
   if (sa.size !== sb.size) return false;
@@ -1484,6 +1508,8 @@ function remoteState() {
         file: c.file ? path.basename(c.file.path) : null, fullscreen: cueAutoSlideshow(c), duration: c.duration || null,
         app: cueApp && presenters.APPS[cueApp] ? presenters.APPS[cueApp].short : null,
         preflight: pf ? pf.level : null, changed: !!ver.changedAt, newer: ver.newer ? ver.newer.name : null,
+        // Which version of the file this computer has (see fileSig), and when it was last saved.
+        sig: missing ? null : fileSig(c.file.path), fileDate: missing ? null : Math.round(Number((fileStamp(c.file.path) || '').split(':')[0])) || null,
       };
     }),
   };

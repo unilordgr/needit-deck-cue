@@ -134,6 +134,12 @@ Connect all the computers to the same network (a simple switch is enough). The C
 - **Choose the screen the slideshows go to** on each computer (*More › Slideshows go to*). The list shows that computer's own screens. Two laptops for one talk: link them, send both the same presentation, and choose a different screen on each. For speaker notes, choose the laptop's *own* screen on the notes laptop: the presentation app then puts its presenter view (notes) on the other screen, if presenter view is switched on in that app. (That part is the presentation app's doing and has not been tried by us yet. WPS Office on Windows and Keynote choose their screen themselves.)
 - **Run the timer:** saved timers with one click, Start/Pause, −1 and +1 minute while it runs, another time, or `@15:30` to count down to a time of day.
 
+**Changing a presentation during the event**
+- Press the **pencil** on a cue. The Command Center fetches that presentation from the show computer and opens it in the presentation app of *your* computer. Change it and save it as usual. The cue then says *Saved here at 14:32. Not on the show computers yet.* Press **Send the new version** and it goes to that computer and to the linked ones (the old version goes to their Trash). Nothing is sent by itself, because apps also save on their own half-way through a change.
+- A cue that is playing keeps showing the old version until you play it again.
+- The files you edit are kept in `needit Command Center/Editing` in your home folder.
+- **Changed on a show computer instead?** (Someone pressed Esc there, fixed a slide and saved.) That computer's Deck Cue notices by itself and marks the cue UPDATED. If computers are linked, the Command Center compares the files themselves, not only their names, and says *The linked computers do not have the same file for cue 3*, which one is the newest, and offers **Copy the newest to the others**.
+
 **Files from a USB stick**
 Drop files straight from the stick. They are copied to the show computers, so the stick can be taken out.
 - Drop a file **on a cue** and you are asked whether to replace that cue's file. The old file goes to the Trash on that computer.

@@ -2,7 +2,7 @@
 // them, and runs them from one place. It talks to each player's own API (src/control/server.js and
 // manage.js); the players keep their shows, so they carry on if the Command Center goes away.
 const APP_NAME = 'needit Command Center';
-const { app, BrowserWindow, ipcMain, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -427,8 +427,138 @@ async function copyShow(sourceId, targetIds) {
   return errors.length ? { ok: false, error: errors.join('\n') } : { ok: true };
 }
 
+// ---------- editing a presentation ----------
+// "Edit" on a cue fetches that cue's file from its computer into a folder here and opens it in this computer's
+// presentation app. The operator changes it and saves as usual; the save is noticed here, and one click sends the
+// new version to the show computers. Nothing is sent by itself: apps also save on their own, half-way through a change.
+// (The two DECKCUE_ variables are for tests: another folder, and no app window popping up.)
+const EDIT_DIR = process.env.DECKCUE_EDIT_DIR || path.join(os.homedir(), 'needit Command Center', 'Editing');
+const openFile = (file) => (process.env.DECKCUE_TEST_NO_OPEN ? Promise.resolve('') : shell.openPath(file));
+const edits = new Map(); // "nodeId|cueId" -> session
+let editTimer = null;
+const stampOf = (file) => { try { const st = fs.statSync(file); return `${Math.round(st.mtimeMs)}:${st.size}`; } catch { return null; } };
+const folderName = (s) => String(s || 'computer').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 60) || 'computer';
+
+function editList() {
+  return [...edits.values()].map((e) => ({ key: e.key, nodeId: e.nodeId, cueId: e.cueId, name: e.name, state: e.state, savedAt: e.savedAt, sentAt: e.sentAt, error: e.error || null }));
+}
+function pushEdits() {
+  if (win && !win.isDestroyed()) win.webContents.send('edits', editList());
+}
+// Look at the files that are open for editing: has one been saved since it was fetched or last sent?
+function watchEdits() {
+  if (!edits.size) { clearInterval(editTimer); editTimer = null; return; }
+  let changed = false;
+  for (const e of edits.values()) {
+    if (e.state === 'sending' || e.state === 'fetching') continue;
+    const now = stampOf(e.file);
+    if (!now) continue; // apps save by writing a new file and swapping it in: it can be missing for a moment
+    // Wait until two looks in a row see the same file, so a save that is still being written is not offered.
+    const settled = now === e.seen;
+    e.seen = now;
+    if (settled && now !== e.base && (e.state !== 'changed' || e.savedAt !== Number(now.split(':')[0]))) {
+      e.state = 'changed'; e.savedAt = Number(now.split(':')[0]); e.error = null; changed = true;
+    }
+  }
+  if (changed) pushEdits();
+}
+
+async function startEdit(nodeId, cueId, again) {
+  const node = nodes.get(nodeId);
+  const cue = node && node.state ? node.state.cues.find((c) => c.id === cueId) : null;
+  if (!node || !cue) return { ok: false, error: 'That cue is gone.' };
+  if (!cue.file || cue.missing) return { ok: false, error: `${node.name} does not have that file, so there is nothing to open.` };
+  const key = `${nodeId}|${cueId}`;
+  const had = edits.get(key);
+  // Changes that were saved here but never sent: do not throw them away without being told to.
+  if (had && had.state === 'changed' && !again) return { ok: false, unsent: true, name: had.name };
+  const dir = path.join(EDIT_DIR, folderName(node.name));
+  const file = path.join(dir, cue.file);
+  const session = { key, nodeId, cueId, number: cue.number, name: cue.file, file, state: 'fetching', base: null, seen: null, savedAt: null, sentAt: null, error: null };
+  if (had && had.state === 'open' && !again && stampOf(had.file)) {
+    // Already fetched and not changed: just bring it up again.
+    const err = await openFile(had.file);
+    return err ? { ok: false, error: `The file could not be opened: ${err}` } : { ok: true };
+  }
+  edits.set(key, session);
+  pushEdits();
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const got = await download(node, `/api/cue/${encodeURIComponent(cueId)}/download`, file);
+    if (!got.ok) throw new Error(got.error);
+    session.base = stampOf(file); session.seen = session.base; session.state = 'open';
+    const err = await openFile(file);
+    if (err) throw new Error(`The file is in ${dir}, but no app opened it: ${err}`);
+  } catch (e) {
+    edits.delete(key);
+    pushEdits();
+    return { ok: false, error: /EBUSY|EPERM|EACCES/.test(e.message) ? `${cue.file} is still open in an app on this computer. Close it there, then press Edit again.` : e.message };
+  }
+  pushEdits();
+  if (!editTimer) editTimer = setInterval(watchEdits, 1500);
+  return { ok: true };
+}
+
+// Send the saved file to the computers (the one it came from and the linked ones that have that presentation).
+async function sendEdit(key, targetIds) {
+  const e = edits.get(key);
+  if (!e) return { ok: false, error: 'That file is not open for editing any more.' };
+  const stamp = stampOf(e.file);
+  if (!stamp) return { ok: false, error: 'The file is being saved right now. Try again in a moment.' };
+  e.state = 'sending'; e.error = null; pushEdits();
+  const errors = [];
+  for (const tid of targetIds) {
+    const t = nodes.get(tid);
+    if (!t || !t.online) { errors.push(`${t ? t.name : 'A computer'} is not connected, so it still has the old version.`); continue; }
+    const report = (u) => { if (win && !win.isDestroyed()) win.webContents.send('upload', { id: tid, ...u }); };
+    let last = 0;
+    report({ name: e.name, sent: 0, total: 1 });
+    const up = await upload(t, e.file, (sent, total) => { if (Date.now() - last > 150 || sent === total) { last = Date.now(); report({ name: e.name, sent, total }); } }, e.name);
+    report({ name: e.name, done: true, error: up.ok ? null : up.error });
+    if (!up.ok) errors.push(`${t.name}: ${up.error}`);
+  }
+  if (errors.length) { e.state = 'changed'; e.error = errors.join('\n'); pushEdits(); return { ok: false, error: e.error }; }
+  e.base = stamp; e.seen = stamp; e.state = 'sent'; e.sentAt = Date.now();
+  pushEdits();
+  return { ok: true };
+}
+
+// One linked computer has a different version of a presentation (someone changed it there): pass that file on.
+async function copyVersion(sourceId, number, targetIds) {
+  const src = nodes.get(sourceId);
+  const cue = src && src.state ? src.state.cues[number - 1] : null;
+  if (!src || !cue || !cue.file) return { ok: false, error: 'That cue is gone.' };
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'deckcue-version-'));
+  const errors = [];
+  try {
+    const local = path.join(tmp, cue.file);
+    const got = await download(src, `/api/cue/${encodeURIComponent(cue.id)}/download`, local);
+    if (!got.ok) return { ok: false, error: `${src.name}: ${got.error}` };
+    for (const tid of targetIds) {
+      const t = nodes.get(tid);
+      if (!t || !t.online) { errors.push(`${t ? t.name : 'A computer'} is not connected.`); continue; }
+      const report = (u) => { if (win && !win.isDestroyed()) win.webContents.send('upload', { id: tid, ...u }); };
+      let last = 0;
+      report({ name: cue.file, sent: 0, total: 1 });
+      const up = await upload(t, local, (sent, total) => { if (Date.now() - last > 150 || sent === total) { last = Date.now(); report({ name: cue.file, sent, total }); } }, cue.file);
+      report({ name: cue.file, done: true, error: up.ok ? null : up.error });
+      if (!up.ok) errors.push(`${t.name}: ${up.error}`);
+    }
+  } finally {
+    fs.rm(tmp, { recursive: true, force: true }, () => {});
+  }
+  return errors.length ? { ok: false, error: errors.join('\n') } : { ok: true };
+}
+
 // ---------- window ----------
 function setupIpc() {
+  ipcMain.handle('edit:list', () => editList());
+  ipcMain.handle('edit:start', (_e, nodeId, cueId, again) => startEdit(String(nodeId), String(cueId), !!again));
+  ipcMain.handle('edit:send', (_e, key, targetIds) => sendEdit(String(key), (targetIds || []).map(String)));
+  ipcMain.handle('edit:done', (_e, key) => { edits.delete(String(key)); pushEdits(); return { ok: true }; });
+  ipcMain.handle('edit:open', async (_e, key) => { const e = edits.get(String(key)); const err = e ? await openFile(e.file) : 'gone'; return err ? { ok: false, error: `The file could not be opened: ${err}` } : { ok: true }; });
+  ipcMain.handle('edit:reveal', (_e, key) => { const e = edits.get(String(key)); if (e) shell.showItemInFolder(e.file); });
+  ipcMain.handle('version:copy', (_e, sourceId, number, targetIds) => copyVersion(String(sourceId), Number(number), (targetIds || []).map(String)));
   ipcMain.handle('nodes:get', () => snapshot());
   ipcMain.handle('node:action', (_e, id, method, urlPath, body) => {
     const node = nodes.get(id);
