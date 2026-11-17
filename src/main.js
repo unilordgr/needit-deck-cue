@@ -168,6 +168,15 @@ function saveRuntime() {
     try { writeSafe(userFile('runtime.json'), text); } catch { /* not worth stopping for */ }
   }, 400);
 }
+// A copy or an upload that was cut off (a crash, a pulled cable) leaves a hidden ".name.part" file behind.
+function removeStaleParts() {
+  try {
+    for (const n of fs.readdirSync(prefs.center.folder)) {
+      if (/^\..+\.part$/.test(n)) fs.rm(path.join(prefs.center.folder, n), { recursive: true, force: true }, () => {});
+    }
+  } catch { /* no show folder yet */ }
+}
+
 function restoreRuntime() {
   const r = readJSON(userFile('runtime.json'));
   if (!r) return;
@@ -633,30 +642,65 @@ async function sameContent(a, b) {
 
 // Copies a dropped file into the show folder. Returns { path } to use for the cue, or { conflict } when a
 // different file with that name is already there and replacing it has not been confirmed yet.
-async function importFile(src, overwrite) {
+// The name a file has in the show folder, whatever capitals it was typed with. Mac and Windows folders do
+// not tell "Deck.pptx" from "deck.pptx", so neither may this.
+function nameInFolder(folder, name) {
+  try {
+    const low = name.toLowerCase();
+    return fs.readdirSync(folder).find((n) => n.toLowerCase() === low) || null;
+  } catch { return null; }
+}
+
+// "Deck.pptx" -> "Deck (2).pptx": the first name that is free in the folder.
+function freeName(folder, name) {
+  const ext = path.extname(name);
+  const base = path.basename(name, ext);
+  for (let i = 2; i < 500; i++) {
+    const candidate = `${base} (${i})${ext}`;
+    if (!nameInFolder(folder, candidate)) return candidate;
+  }
+  return `${base} (${Date.now()})${ext}`;
+}
+
+// Copy a presentation into the show folder. A different file with the same name is never overwritten
+// without a decision: mode 'replace' (a new version: the old one goes to the Trash) or 'keep' (both stay,
+// the new one as "Name (2)"). Without a mode the caller gets the facts to ask the operator with.
+async function importFile(src, mode) {
+  if (mode === true) mode = 'replace';
   if (!prefs.files.copy) return { path: src, usedBy: [] };
   const folder = prefs.center.folder;
   await fs.promises.mkdir(folder, { recursive: true });
   const name = path.basename(src);
-  const dest = path.join(folder, name);
+  const existing = nameInFolder(folder, name);
+  let dest = path.join(folder, existing || name);
   if (samePath(src, dest)) return { path: dest, usedBy: cuesUsing(dest) };
-  const exists = fs.existsSync(dest);
-  if (exists) {
-    if (await sameContent(src, dest)) return { path: dest, same: true, usedBy: cuesUsing(dest) };
-    if (!overwrite) return { conflict: true, name, usedBy: cuesUsing(dest) };
+  let info;
+  try { info = fs.statSync(src); } catch (e) { return { error: `Could not read ${name}: ${e.message}` }; }
+  const isFolder = info.isDirectory(); // a Keynote package is a folder
+  if (existing) {
+    if (!isFolder && await sameContent(src, dest).catch(() => false)) return { path: dest, same: true, usedBy: cuesUsing(dest) };
+    if (mode !== 'replace' && mode !== 'keep') {
+      const mine = fs.statSync(dest);
+      return { conflict: true, name: existing, usedBy: cuesUsing(dest), existingDate: mine.mtimeMs, incomingDate: info.mtimeMs, older: info.mtimeMs < mine.mtimeMs - 2000 };
+    }
+    if (mode === 'keep') dest = path.join(folder, freeName(folder, name));
   }
-  const part = path.join(folder, `.${name}.${process.pid}.part`);
+  const replacing = !!existing && mode === 'replace';
+  const part = path.join(folder, `.${path.basename(dest)}.${process.pid}.part`);
   try {
-    await fs.promises.copyFile(src, part);
-    const st = fs.statSync(src);
-    await fs.promises.utimes(part, st.atime, st.mtime); // keep the file's own date
+    if (isFolder) await fs.promises.cp(src, part, { recursive: true });
+    else await fs.promises.copyFile(src, part);
+    await fs.promises.utimes(part, info.atime, info.mtime); // keep the file's own date
+    // The version that is being replaced goes to the Trash first, so it can be brought back.
+    if (replacing) await shell.trashItem(dest).catch(() => {});
+    if (replacing && isFolder) await fs.promises.rm(dest, { recursive: true, force: true });
     await fs.promises.rename(part, dest);
   } catch (e) {
-    fs.rm(part, { force: true }, () => {});
-    return { error: exists ? `${name} is in use and could not be replaced. Stop its cue and try again.` : `Could not copy ${name}: ${e.message}` };
+    fs.rm(part, { recursive: true, force: true }, () => {});
+    return { error: replacing ? `${path.basename(dest)} is in use and could not be replaced. Stop its cue and try again.` : `${name} could not be copied into the show folder. ${e.code === 'ENOSPC' ? 'The disk is full.' : e.code === 'EACCES' || e.code === 'EPERM' ? 'The folder cannot be written to.' : e.message}` };
   }
   if (versions) versions.scan();
-  return { path: dest, replaced: exists, usedBy: cuesUsing(dest) };
+  return { path: dest, replaced: replacing, kept: !!existing && mode === 'keep', usedBy: cuesUsing(dest) };
 }
 
 // After a cue got a new file: the old one leaves the show folder (to the Trash), unless another cue
@@ -705,6 +749,17 @@ const manageActions = {
     updater.install().catch(() => {});
     return { update: updateSummary() };
   },
+  // What a Command Center needs to know before it sends a file with this name.
+  fileCheck(name) {
+    const folder = prefs.center.folder;
+    const existing = nameInFolder(folder, name);
+    if (!existing) return { exists: false, name, usedBy: [] };
+    const file = path.join(folder, existing);
+    const st = fs.statSync(file);
+    return { exists: true, name: existing, usedBy: cuesUsing(file), size: st.size, date: st.mtimeMs };
+  },
+  nameInFolder: (name) => nameInFolder(prefs.center.folder, name),
+  trash: (file) => shell.trashItem(file).catch(() => {}),
   updateAsset: () => (updater ? updater.state().asset : null),
   updateTempFile: () => {
     const folder = path.join(app.getPath('userData'), 'updates');
@@ -1367,7 +1422,7 @@ function setupIpc() {
   ipcMain.handle('update:check', () => updater.check({ manual: true }));
   ipcMain.handle('update:install', () => updater.install().catch((e) => ({ ...updater.state(), error: e.message })));
   ipcMain.handle('update:seen', () => updater.seen());
-  ipcMain.handle('files:import', (_e, src, overwrite) => importFile(src, !!overwrite).catch((e) => ({ error: e.message })));
+  ipcMain.handle('files:import', (_e, src, mode) => importFile(src, mode).catch((e) => ({ error: e.message })));
   ipcMain.handle('files:retire', (_e, oldPath, newPath) => retireFile(oldPath, newPath));
   ipcMain.handle('files:prefs', (_e, patch) => {
     if (patch) { prefs.files = { ...prefs.files, ...patch }; autosave(); }
@@ -1475,6 +1530,7 @@ app.whenReady().then(() => {
   });
   loadInitial();
   restoreRuntime();
+  removeStaleParts();
   updater = createUpdater({
     prefix: 'needit-Deck-Cue',
     getSettings: () => prefs.update || DEFAULT_UPDATE,

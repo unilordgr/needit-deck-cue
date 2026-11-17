@@ -3,7 +3,9 @@
 // player allows it; an optional network key must then match (header X-DeckCue-Key).
 //
 //   GET  /api/info                         name, id, platform, whether it accepts a Command Center
-//   PUT  /api/files/<name>                 body = the file; saved into the project folder
+//   POST /api/files/check                  { name }  is a file with that name already here, and which cues use it
+//   PUT  /api/files/<name>                 body = the file; saved into the project folder. A file with that name
+//                                          (capitals do not matter) is replaced and goes to the Trash.
 //   POST /api/cues                         { file, index?, label?, autoSlideshow? }  add a cue for a received file
 //   POST /api/cue/<ref>/file               { file }                    point a cue at a received file
 //   POST /api/cue/<ref>/update             { label, autoSlideshow, startSlide, duration, notes, color, output }
@@ -52,15 +54,18 @@ function createManage({ getConfig, extensions, actions }) {
   }
 
   function received(name) {
-    const file = path.join(getConfig().folder, safeName(name));
-    if (!fs.existsSync(file)) throw fail(404, `${name} has not been sent to this computer yet`);
-    return file;
+    const safe = safeName(name);
+    const existing = actions.nameInFolder(safe);
+    if (!existing) throw fail(404, `${name} has not been sent to this computer yet`);
+    return path.join(getConfig().folder, existing);
   }
 
   function saveFile(req, name) {
     const { folder } = getConfig();
     fs.mkdirSync(folder, { recursive: true });
-    const target = path.join(folder, name);
+    // "deck.pptx" must not become a second file beside "Deck.pptx", nor silently overwrite it.
+    const existing = actions.nameInFolder(name);
+    const target = path.join(folder, existing || name);
     const part = path.join(folder, `.${name}.${process.pid}.part`);
     return new Promise((resolve, reject) => {
       const out = fs.createWriteStream(part);
@@ -70,14 +75,16 @@ function createManage({ getConfig, extensions, actions }) {
       req.on('error', abort);
       req.on('aborted', () => abort(fail(400, 'Upload interrupted')));
       out.on('error', (e) => abort(fail(500, `Could not write the file: ${e.message}`)));
-      out.on('finish', () => {
+      out.on('finish', async () => {
+        if (size === 0) { fs.rm(part, { force: true }, () => {}); return reject(fail(400, `${name} is empty (0 bytes), so it was not added.`)); }
+        if (existing) await actions.trash(target); // the version it replaces can be brought back from the Trash
         fs.rename(part, target, (err) => {
           if (err) {
             fs.rm(part, { force: true }, () => {});
             // On Windows a deck that is open in PowerPoint can't be replaced.
             return reject(fail(409, `${name} is in use on that computer. Stop its cue, then send it again.`));
           }
-          resolve({ name, path: target, size });
+          resolve({ name: path.basename(target), path: target, size, replaced: !!existing });
         });
       });
       req.pipe(out);
@@ -112,6 +119,7 @@ function createManage({ getConfig, extensions, actions }) {
       return true;
     }
     const isFile = req.method === 'PUT' && a === 'files' && b && !c;
+    const isFileCheck = req.method === 'POST' && a === 'files' && b === 'check' && !c;
     const isCueAdd = req.method === 'POST' && a === 'cues' && !b;
     const isClear = req.method === 'POST' && a === 'cues' && b === 'clear' && !c;
     const isDownload = req.method === 'GET' && a === 'cue' && b && c === 'download';
@@ -120,7 +128,7 @@ function createManage({ getConfig, extensions, actions }) {
     const isPresets = req.method === 'POST' && a === 'timer' && b === 'presets' && !c;
     const isUpdateInstall = req.method === 'POST' && a === 'update' && b === 'install' && !c;
     const isUpdatePackage = req.method === 'PUT' && a === 'update' && b === 'package' && c && parts.length === 4;
-    if (!isFile && !isCueAdd && !isCueEdit && !isTimerCfg && !isPresets && !isClear && !isDownload && !isUpdateInstall && !isUpdatePackage) return false;
+    if (!isFile && !isFileCheck && !isCueAdd && !isCueEdit && !isTimerCfg && !isPresets && !isClear && !isDownload && !isUpdateInstall && !isUpdatePackage) return false;
 
     const answer = (work) => {
       Promise.resolve().then(work).then((r) => send(res, 200, { ok: true, ...(r || {}) }))
@@ -152,6 +160,7 @@ function createManage({ getConfig, extensions, actions }) {
       });
       return true;
     }
+    if (isFileCheck) { answer(async () => { const body = await readJson(req); return actions.fileCheck(safeName(body.name)); }); return true; }
     if (isClear) answer(() => { req.resume(); return actions.clearCues(); });
     else if (isFile) answer(async () => saveFile(req, safeName(decodeURIComponent(b))));
     else if (isCueAdd) answer(async () => { const body = await readJson(req); return actions.addCue({ ...body, file: received(body.file) }); });

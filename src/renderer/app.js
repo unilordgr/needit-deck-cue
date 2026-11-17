@@ -354,6 +354,7 @@ function setupCenter() {
   document.querySelector('.about-actions').addEventListener('click', (e) => {
     if (e.target.dataset.about) api.aboutOpen(e.target.dataset.about);
   });
+  $('chooseButtons').onclick = (e) => { const b = e.target.closest('[data-choice]'); if (b && chooseDone) chooseDone(b.dataset.choice); };
   // Updates
   $('updateBtn').onclick = () => openSettingsPane('about');
   $('updateCheck').onclick = async () => { $('updateCheck').disabled = true; await api.updateCheck(); $('updateCheck').disabled = false; };
@@ -1084,12 +1085,54 @@ const cueList = (numbers) => `cue ${numbers.join(', ')}`;
 
 // Copies a dropped file into the show folder (so a USB stick can be removed). Asks before replacing a
 // different file of the same name. Returns what main reported, or null when cancelled or failed.
-async function importPath(p) {
-  let r = await api.importFile(p, false);
+// ---------- a question with named answers ----------
+// Bigger and clearer than the system's OK / Cancel box, and it can offer three answers.
+let chooseDone = null;
+function choose({ title, lines = [], warn = '', buttons, all = '' }) {
+  return new Promise((resolve) => {
+    $('chooseTitle').textContent = title;
+    $('chooseLines').innerHTML = lines.filter(Boolean).map((l) => `<p>${esc(l)}</p>`).join('');
+    $('chooseWarn').hidden = !warn;
+    $('chooseWarn').textContent = warn;
+    $('chooseAllWrap').hidden = !all;
+    $('chooseAllText').textContent = all;
+    $('chooseAll').checked = false;
+    $('chooseButtons').innerHTML = buttons.map((b) => `<button class="btn ${b.kind || ''}" data-choice="${esc(b.id)}">${esc(b.label)}</button>`).join('');
+    chooseDone = (id) => { chooseDone = null; $('chooseModal').hidden = true; resolve({ id, all: $('chooseAll').checked }); };
+    $('chooseModal').hidden = false;
+    const first = $('chooseButtons').querySelector('.go') || $('chooseButtons').querySelector('button');
+    if (first) first.focus();
+  });
+}
+const when = (ms) => new Date(ms).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+// Copy one file into the show folder. A different file with the same name is never overwritten without asking.
+let importRule = null; // the answer the operator gave "for the other files too" in one drop
+async function importPath(p, more = 0, justAdded = []) {
+  let r = await api.importFile(p);
   if (r.conflict) {
-    const used = r.usedBy.length ? ` It is the file of ${cueList(r.usedBy)}.` : '';
-    if (!confirm(`“${r.name}” is already in this show's folder.${used}\n\nReplace it with the one you just added?`)) return null;
-    r = await api.importFile(p, true);
+    let mode = importRule;
+    if (!mode) {
+      // A newer file for a cue that uses that name is most likely its new version; anything else is safer kept apart.
+      const likelyNewVersion = r.usedBy.length > 0 && !r.older;
+      const ans = await choose({
+        title: `“${r.name}” is already in the show folder`,
+        lines: [
+          r.usedBy.length ? `It is the file of ${cueList(r.usedBy)}.` : justAdded.includes(r.name.toLowerCase()) ? 'You added a file with this name a moment ago.' : 'No cue uses it at the moment.',
+          `In the folder: ${when(r.existingDate)}. The one you added: ${when(r.incomingDate)}.`,
+          'Replace makes this the new version (the old one goes to the Trash). Keep both adds it as a separate presentation.',
+        ],
+        warn: r.older ? 'The file you added is OLDER than the one in the folder.' : '',
+        all: more > 0 ? 'Do the same for the other files in this drop' : '',
+        buttons: likelyNewVersion
+          ? [{ id: 'replace', label: 'Replace', kind: 'go' }, { id: 'keep', label: 'Keep both' }, { id: 'cancel', label: 'Skip this file', kind: 'ghost' }]
+          : [{ id: 'keep', label: 'Keep both', kind: 'go' }, { id: 'replace', label: 'Replace' }, { id: 'cancel', label: 'Skip this file', kind: 'ghost' }],
+      });
+      if (ans.id === 'cancel') return null;
+      mode = ans.id;
+      if (ans.all) importRule = mode;
+    }
+    r = await api.importFile(p, mode);
   }
   if (r.error) { flash(r.error, 'error'); return null; }
   return r;
@@ -1101,13 +1144,17 @@ async function addFiles(paths, beforeIndex = show.cues.length) {
   const cues = [];
   const updated = [];
   const already = [];
-  for (const p of ok) {
-    const r = await importPath(p);
+  importRule = null;
+  const justAdded = [];
+  for (let i = 0; i < ok.length; i++) {
+    const r = await importPath(ok[i], ok.length - i - 1, justAdded);
     if (!r) continue;
+    justAdded.push(baseName(r.path).toLowerCase());
     // A file that a cue already uses was replaced in place: that cue has the new version, no second cue.
     if (r.usedBy && r.usedBy.length) { (r.same ? already : updated).push(...r.usedBy); continue; }
     cues.push(newCue(r.path));
   }
+  importRule = null;
   if (cues.length) {
     show.cues.splice(beforeIndex, 0, ...cues);
     if (!runtime.armedCueId) api.arm(cues[0].id);
@@ -1115,7 +1162,7 @@ async function addFiles(paths, beforeIndex = show.cues.length) {
   await refreshFileStatus();
   if (cues.length) await commit(); else render();
   if (rejected) flash(`${rejected} file(s) skipped. Supported: ${env.supportedExt.join(' ')}`, 'warn');
-  else if (updated.length) flash(`${cueList(updated).replace(/^c/, 'C')} now ${updated.length === 1 ? 'has' : 'have'} the new version.`, 'info');
+  else if (updated.length) flash(`${cueList(updated).replace(/^c/, 'C')} now ${updated.length === 1 ? 'has' : 'have'} the new version. The old one is in the Trash.`, 'info');
   else if (already.length && !cues.length) flash(`That file is already in the show as ${cueList(already)}.`, 'info');
 }
 
@@ -1123,15 +1170,40 @@ async function replaceFile(id, p) {
   if (!isSupported(p)) return flash(`Not a presentation: ${baseName(p)}`, 'warn');
   const c = cueById(id);
   const n = show.cues.indexOf(c) + 1;
-  if (c.file && !confirm(`Replace the file of cue ${n} “${cueName(c)}” with ${baseName(p)}?\n\nThe old file is moved out of the show folder, so only the latest version stays.`)) return;
-  const r = await api.importFile(p, true); // replacing was just confirmed
+  if (c.file) {
+    const ans = await choose({
+      title: `Replace the file of cue ${n}?`,
+      lines: [`Cue ${n} “${cueName(c)}” will play ${baseName(p)} from now on.`, 'The file it plays now goes to the Trash, so the show folder keeps only the latest version.'],
+      buttons: [{ id: 'replace', label: 'Replace', kind: 'go' }, { id: 'cancel', label: 'Cancel', kind: 'ghost' }],
+    });
+    if (ans.id !== 'replace') return;
+  }
+  let r = await api.importFile(p);
+  let note = '';
+  if (r.conflict) {
+    // A file with that name is in the folder already. If it is this cue's own file, this is its new version.
+    // If another cue uses it, it is a different presentation that happens to have the same name: leave it alone.
+    const own = r.usedBy.length === 1 && r.usedBy[0] === n;
+    if (own && r.older) {
+      const ans = await choose({
+        title: 'That file is older',
+        lines: [`The file cue ${n} plays now: ${when(r.existingDate)}.`, `The file you dropped: ${when(r.incomingDate)}.`],
+        warn: 'The file you dropped is OLDER than the one the cue plays now.',
+        buttons: [{ id: 'cancel', label: 'Keep the newer one', kind: 'go' }, { id: 'replace', label: 'Use the older file' }],
+      });
+      if (ans.id !== 'replace') return;
+    }
+    const others = r.usedBy.filter((x) => x !== n);
+    r = await api.importFile(p, own ? 'replace' : 'keep');
+    if (!own && !r.error) note = ` ${others.length ? `${cueList(others).replace(/^c/, 'C')} plays a different file with that name` : 'A different file with that name is in the folder'}, so this one was saved as ${baseName(r.path)}.`;
+  }
   if (r.error) return flash(r.error, 'error');
   const old = c.file ? c.file.path : null;
   c.file = { path: r.path };
   await refreshFileStatus();
   await commit();
   if (old) api.retireFile(old, r.path);
-  flash(`Cue ${n} now uses ${baseName(r.path)}`, 'info');
+  flash(`Cue ${n} now plays ${baseName(r.path)}.${note}`, 'info');
 }
 
 function moveCue(id, beforeId) {
@@ -1393,6 +1465,7 @@ function handleCapture(e) {
 function setupKeyboard() {
   document.addEventListener('keydown', (e) => {
     if (capture) return handleCapture(e);
+    if (!$('chooseModal').hidden) { if (e.key === 'Escape' && chooseDone) chooseDone('cancel'); return; }
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) {
       if (e.key === 'Escape') t.blur();
