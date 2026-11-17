@@ -24,6 +24,26 @@ function notice(text, kind = 'error') {
   noticeTimer = setTimeout(() => { el.hidden = true; }, kind === 'info' ? 4000 : 9000);
 }
 
+// A question with named answers: bigger and clearer than the system's OK / Cancel box, and it can offer three.
+let chooseDone = null;
+function choose({ title, lines = [], warn = '', buttons, all = '' }) {
+  return new Promise((resolve) => {
+    $('chooseTitle').textContent = title;
+    $('chooseLines').innerHTML = lines.filter(Boolean).map((l) => `<p>${esc(l)}</p>`).join('');
+    $('chooseWarn').hidden = !warn;
+    $('chooseWarn').textContent = warn;
+    $('chooseAllWrap').hidden = !all;
+    $('chooseAllText').textContent = all;
+    $('chooseAll').checked = false;
+    $('chooseButtons').innerHTML = buttons.map((b) => `<button class="btn ${b.kind || ''}" data-choice="${esc(b.id)}">${esc(b.label)}</button>`).join('');
+    chooseDone = (id) => { chooseDone = null; $('chooseModal').hidden = true; resolve({ id, all: $('chooseAll').checked }); };
+    $('chooseModal').hidden = false;
+    const first = $('chooseButtons').querySelector('.go') || $('chooseButtons').querySelector('button');
+    if (first) first.focus();
+  });
+}
+const when = (ms) => new Date(ms).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
 async function act(id, path, body, method = 'POST') {
   const r = await window.center.action(id, method, path, body);
   if (!r.ok) notice(r.error || 'That did not work.');
@@ -69,11 +89,17 @@ async function actGroup(id, path, body) {
   return results[0];
 }
 
-// A request about one cue. The other linked computers get the cue in the same position of their list.
+// Linked computers play by position. Before anything is done to "cue 2" on another computer, that cue must be
+// the same presentation there; otherwise the wrong deck would be played, changed or removed.
+const sameCue = (a, b) => !!a && !!b && a.name === b.name && (a.file || '') === (b.file || '');
 async function actCue(id, cue, suffix, body) {
   const failed = [];
   await Promise.all(group(id).map(async (n) => {
-    if (n.id !== id && !(n.state && n.state.cues[cue.number - 1])) { failed.push(`${n.name} has no cue ${cue.number}.`); return; }
+    if (n.id !== id) {
+      const there = n.state && n.state.cues[cue.number - 1];
+      if (!there) { failed.push(`${n.name} has no cue ${cue.number}. Nothing was done there.`); return; }
+      if (!sameCue(there, cue)) { failed.push(`${n.name}: cue ${cue.number} there is “${there.name}”, not “${cue.name}”. Nothing was done there. Copy the list first.`); return; }
+    }
     const r = await window.center.action(n.id, 'POST', `/api/cue/${encodeURIComponent(n.id === id ? cue.id : String(cue.number))}/${suffix}`, body);
     if (!r.ok) failed.push(`${n.name}: ${r.error || 'did not work'}`);
   }));
@@ -85,37 +111,59 @@ function linkedNames() {
 }
 
 // Linked computers play by position, so their lists should match.
-const listOf = (n) => JSON.stringify(n.state.cues.map((c) => [c.name, c.file]));
+// The same presentations in the same order, with the same full-screen and timer settings.
+const listOf = (n) => JSON.stringify(n.state.cues.map((c) => [c.name, c.file, !!c.fullscreen, c.duration || 0]));
 function listsDiffer() {
   return new Set(nodes.filter((n) => linked.has(n.id) && n.online && n.state).map(listOf)).size > 1;
+}
+// Is a different cue next on the linked computers? (After a restart a computer starts again at cue 1.)
+function nextDiffers() {
+  return new Set(nodes.filter((n) => linked.has(n.id) && n.online && n.state).map((n) => (n.state.next ? n.state.next.number : 0))).size > 1;
 }
 
 const plural = (k, word) => `${k} ${word}${k === 1 ? '' : 's'}`;
 
 // Makes the targets identical to the source: files, cues, saved timers.
+let copyRunning = false;
 async function copyList(source, targets) {
+  if (copyRunning) return notice('A copy is still running. Wait for it to finish.');
+  copyRunning = true;
   notice(`Copying the list of ${source.name} to ${targets.map((t) => t.name).join(', ')}…`, 'info');
-  const r = await window.center.copyShow(source.id, targets.map((t) => t.id));
-  if (r.ok) notice(`${targets.map((t) => t.name).join(', ')} now ${targets.length === 1 ? 'has' : 'have'} the same list as ${source.name}.`, 'info');
-  else notice(r.error);
+  try {
+    const r = await window.center.copyShow(source.id, targets.map((t) => t.id));
+    if (r.ok) notice(`${targets.map((t) => t.name).join(', ')} now ${targets.length === 1 ? 'has' : 'have'} the same list as ${source.name}.`, 'info');
+    else notice(r.error);
+  } finally { copyRunning = false; }
 }
 
-// A computer was just linked: if its list differs from the others, offer to copy the set-up one across,
-// so a backup doesn't have to be loaded by hand.
-function offerCopy(id) {
+// A computer was just linked: if its list differs from the others, offer to copy one across, so a backup does
+// not have to be loaded by hand. When both have a list, the operator says which one is right.
+async function offerCopy(id) {
   const me = nodeById(id);
   const others = nodes.filter((n) => n.id !== id && linked.has(n.id) && n.online && n.state);
   if (!me || !me.state || !others.length || listOf(me) === listOf(others[0])) return;
-  const [source, targets] = !me.state.cues.length || others[0].state.cues.length
-    ? [others[0], [me]]
-    : [me, others];
-  const k = source.state.cues.length;
-  if (!k) return;
+  const other = others[0];
+  const mine = me.state.cues.length;
+  const theirs = other.state.cues.length;
+  if (!mine && !theirs) return;
+  if (mine && theirs) {
+    const ans = await choose({
+      title: 'These two have different lists',
+      lines: [`${me.name}: ${plural(mine, 'presentation')}. ${other.name}: ${plural(theirs, 'presentation')}.`, 'Linked computers play by position, so their lists should be the same. Which list is the right one? The other computer gets a copy of it, and its own list is replaced.'],
+      buttons: [{ id: 'theirs', label: `Use the list of ${other.name}`, kind: 'go' }, { id: 'mine', label: `Use the list of ${me.name}` }, { id: 'cancel', label: 'Leave both as they are', kind: 'ghost' }],
+    });
+    if (ans.id === 'theirs') copyList(other, [me]);
+    else if (ans.id === 'mine') copyList(me, others);
+    return;
+  }
+  const [source, targets] = mine ? [me, others] : [other, [me]];
   const names = targets.map((t) => t.name).join(' and ');
-  const text = targets.some((t) => t.state.cues.length)
-    ? `${names} has a different list.\n\nReplace it with the ${plural(k, 'presentation')} and cues from ${source.name}?`
-    : `Copy the ${plural(k, 'presentation')} and cues from ${source.name} to ${names}?`;
-  if (confirm(text)) copyList(source, targets);
+  const ans = await choose({
+    title: `Copy the list to ${names}?`,
+    lines: [`${source.name} has ${plural(source.state.cues.length, 'presentation')}; ${names} has none. The files, the cues with their settings and the saved timers are copied across.`],
+    buttons: [{ id: 'copy', label: 'Copy the list', kind: 'go' }, { id: 'cancel', label: 'Not now', kind: 'ghost' }],
+  });
+  if (ans.id === 'copy') copyList(source, targets);
 }
 
 function toggleLink(id) {
@@ -223,6 +271,18 @@ function renderUpdates() {
   if (u.updatedFrom && !saidUpdated) { saidUpdated = true; notice(`The Command Center was updated to version ${u.current}.`, 'info'); window.center.updateSeen(); }
 }
 
+// The lines under a card for files on their way. They are redrawn on their own (see the 'upload' event):
+// rebuilding the whole card for every progress step made its buttons miss clicks during a transfer.
+function sendingHtml(id) {
+  return [...(uploads.get(id) || new Map()).entries()].map(([name, u]) => (u.error
+    ? `<div class="up err"><span>Could not send ${esc(name)}: ${esc(u.error)}</span><button class="btn ghost small" data-act="dismiss-up" data-name="${esc(name)}" title="Remove this message">✕</button></div>`
+    : `<div class="up">${u.done ? `${esc(name)} sent` : `Sending ${esc(name)}`}${u.done ? '' : `<div class="bar"><i style="width:${Math.round((u.sent / Math.max(1, u.total)) * 100)}%"></i></div>`}</div>`)).join('');
+}
+function drawSending(id) {
+  const el = document.querySelector(`.pc[data-id="${CSS.escape(id)}"] [data-sending]`);
+  if (el) el.innerHTML = sendingHtml(id);
+}
+
 function cardHtml(n) {
   const s = n.state;
   const sub = [PLATFORM[n.platform] || '', s ? s.show : '', n.online ? '' : 'not connected'].filter(Boolean).join(', ');
@@ -233,6 +293,8 @@ function cardHtml(n) {
   else if (!n.manage) banner = 'This computer only takes play controls. To send it files, open Settings on it and switch on “Connect to Command Center”.';
   else if (!n.keyOk) banner = 'This computer has a network key. Type the same key under Settings here.';
   else if (isLinked && listsDiffer()) banner = 'DIFFER';
+  else if (isLinked && nextDiffers()) banner = 'NEXT';
+  const clash = n.clash ? '<div class="pc-banner bad">Two computers are answering with this one\'s identity (their settings were copied from one to the other). Only one of them is shown here. On the copy, close Deck Cue, delete its settings folder and open it again.</div>' : '';
 
   if (!s) {
     return `<header class="pc-head"><span class="dot${n.online ? ' on' : ''}"></span>
@@ -243,7 +305,6 @@ function cardHtml(n) {
 
   const mode = screenMode(s);
   const ts = s.timerScreen || {};
-  const ups = [...(uploads.get(n.id) || new Map()).entries()];
   const manage = canManage(n);
   const cues = s.cues.map((c) => `
     <li class="cue ${c.state}${c.missing ? ' missing' : ''}" data-cue="${esc(c.id)}" data-num="${c.number}" draggable="${manage}" style="--cue-color:${esc(c.color || '#3a3d43')}" title="Click to make this the next cue">
@@ -267,7 +328,10 @@ function cardHtml(n) {
     </header>
     ${banner === 'DIFFER'
     ? `<div class="pc-banner">The linked computers have different lists. They play by position, so they should match. ${s.cues.length ? '<button class="btn small" data-act="copy-from">Copy this list to the others</button>' : ''}</div>`
+    : banner === 'NEXT' ? `<div class="pc-banner">The linked computers do not have the same cue next. GO plays the Next of the computer you press it on, on all of them. <button class="btn small" data-act="same-next">Make Next the same as here</button></div>`
     : banner ? `<div class="pc-banner">${esc(banner)}</div>` : ''}
+    ${clash}
+    ${s.message ? `<div class="pc-msg ${esc(s.messageLevel || 'info')}">${esc(s.message)}</div>` : ''}
     ${updateStrip(n)}
     <div class="pc-tally">
       <div class="tally-row live${s.live ? ' on' : ''}"><span class="word">Live</span>
@@ -301,8 +365,7 @@ function cardHtml(n) {
       </div>
     </div>
     <ol class="cues">${cues}</ol>
-    ${ups.length ? `<div class="sending">${ups.map(([name, u]) => `<div class="up${u.error ? ' err' : ''}">${u.error ? `Could not send ${esc(name)}: ${esc(u.error)}` : u.done ? `${esc(name)} sent` : `Sending ${esc(name)}`}
-      ${u.error || u.done ? '' : `<div class="bar"><i style="width:${Math.round((u.sent / Math.max(1, u.total)) * 100)}%"></i></div>`}</div>`).join('')}</div>` : ''}
+    <div class="sending" data-sending>${sendingHtml(n.id)}</div>
     ${manage ? '<div class="drop">Drop presentations here, <button data-act="pick">or choose files</button></div>' : ''}
     <details class="more"${n.moreOpen ? ' open' : ''}>
       <summary>More for this computer</summary>
@@ -320,7 +383,7 @@ function cardHtml(n) {
 // Everything that changes what a card looks like (the running timer is drawn separately by tick()).
 function signature(n) {
   const s = n.state;
-  return JSON.stringify([updateSig(n), linked.has(n.id), linked.has(n.id) && listsDiffer(), n.name, n.online, n.manage, n.keyOk, n.platform, s && [s.show, s.live, s.next, s.blackout, s.timerScreen, s.timer.running, s.timerPresets, s.cues], [...(uploads.get(n.id) || new Map()).entries()]]);
+  return JSON.stringify([updateSig(n), linked.has(n.id), linked.has(n.id) && listsDiffer(), linked.has(n.id) && nextDiffers(), n.clash, n.name, n.online, n.manage, n.keyOk, n.platform, s && [s.show, s.live, s.next, s.blackout, s.timerScreen, s.timer.running, s.timerPresets, s.cues, s.message, s.messageLevel]]);
 }
 
 function render() {
@@ -330,9 +393,13 @@ function render() {
   board.hidden = nodes.length === 0;
   const online = nodes.filter((n) => n.online).length;
   const names = linkedNames();
+  const gone = nodes.filter((n) => linked.has(n.id) && !n.online);
   $('summary').textContent = nodes.length
-    ? `${online} of ${nodes.length} computer${nodes.length === 1 ? '' : 's'} connected${names.length > 1 ? `. Linked: ${names.join(' + ')} play together.` : names.length === 1 ? `. ${names[0]} is waiting for a second linked computer.` : ''}`
+    ? `${online} of ${nodes.length} computer${nodes.length === 1 ? '' : 's'} connected${gone.length ? '' : names.length > 1 ? `. Linked: ${names.join(' + ')} play together.` : names.length === 1 ? `. ${names[0]} is waiting for a second linked computer.` : ''}`
     : '';
+  // A linked computer that dropped out gets nothing of what is done now: files, cues, GO.
+  $('summary').classList.toggle('alarm', gone.length > 0);
+  if (gone.length) $('summary').textContent += `. LINKED BUT NOT CONNECTED: ${gone.map((n) => n.name).join(', ')}. ${gone.length === 1 ? 'It is' : 'They are'} not getting what you do now.`;
 
   for (const el of [...board.children]) if (!nodeById(el.dataset.id)) { signatures.delete(el.dataset.id); el.remove(); }
   nodes.forEach((n, i) => {
@@ -348,7 +415,9 @@ function render() {
     el.classList.toggle('linked', linked.has(n.id));
     const sig = signature(n);
     // Don't rebuild a card under the operator's hands: while typing in it or dragging one of its cues.
-    const busy = (el.contains(document.activeElement) && ['INPUT', 'SELECT'].includes(document.activeElement.tagName)) || (dragging && dragging.nodeId === n.id);
+    const ae = document.activeElement;
+    const typing = el.contains(ae) && ae.tagName === 'INPUT' && ae.type !== 'checkbox';
+    const busy = typing || (dragging && dragging.nodeId === n.id);
     if (sig !== signatures.get(n.id) && !busy) {
       const more = el.querySelector('.more');
       n.moreOpen = more ? more.open : false;
@@ -393,7 +462,13 @@ board.addEventListener('click', async (e) => {
     return;
   }
   const preset = e.target.closest('[data-preset]');
-  if (preset) { actGroup(id, `/api/timer/preset?n=${preset.dataset.preset}`); return; }
+  if (preset) {
+    // The saved timers can differ between computers, so the others get the time itself, not "timer number 3".
+    const p = n.state.timerPresets[Number(preset.dataset.preset) - 1];
+    window.center.action(id, 'POST', `/api/timer/preset?n=${preset.dataset.preset}`).then((r) => { if (!r.ok) notice(`${n.name}: ${r.error}`); });
+    if (p) for (const other of group(id).filter((x) => x.id !== id)) window.center.action(other.id, 'POST', `/api/timer/set?seconds=${Math.round(p.minutes * 60)}&start=1`).then((r) => { if (!r.ok) notice(`${other.name}: ${r.error}`); });
+    return;
+  }
   if (e.target.closest('.cue-timer')) return; // typing in a cue's timer box, not choosing the cue
   if (actEl) {
     const a = actEl.dataset.act;
@@ -403,9 +478,30 @@ board.addEventListener('click', async (e) => {
     else if (a === 'copy-from') {
       const others = nodes.filter((x) => x.id !== id && linked.has(x.id) && x.online);
       const k = n.state.cues.length;
-      if (others.length && confirm(`Replace the list on ${others.map((x) => x.name).join(' and ')} with the ${plural(k, 'presentation')} and cues from ${n.name}?`)) copyList(n, others);
+      if (others.length) {
+        const ans = await choose({
+          title: `Copy this list to ${others.map((x) => x.name).join(' and ')}?`,
+          lines: [`The list on ${others.map((x) => x.name).join(' and ')} is replaced with the ${plural(k, 'presentation')} and cues from ${n.name}.`],
+          buttons: [{ id: 'copy', label: 'Copy the list', kind: 'go' }, { id: 'cancel', label: 'Cancel', kind: 'ghost' }],
+        });
+        if (ans.id === 'copy') copyList(n, others);
+      }
     }
-    else if (a === 'go') actGroup(id, '/api/go');
+    else if (a === 'same-next') {
+      if (n.state.next) actCue(id, n.state.cues[n.state.next.number - 1], 'arm');
+    }
+    else if (a === 'dismiss-up') {
+      const map = uploads.get(id);
+      if (map) { map.delete(actEl.dataset.name); drawSending(id); }
+    }
+    else if (a === 'go') {
+      // Linked: every computer plays the cue that is next HERE, by position. Sending each one its own GO
+      // could start a different presentation on the backup.
+      const next = n.state.next ? n.state.cues[n.state.next.number - 1] : null;
+      if (group(id).length < 2) actGroup(id, '/api/go');
+      else if (next) actCue(id, next, 'fire');
+      else notice('That was the last cue. Nothing is next.', 'info');
+    }
     else if (a === 'stop') actGroup(id, '/api/stop');
     else if (a === 'next') actGroup(id, '/api/next');
     else if (a === 'prev') actGroup(id, '/api/prev');
@@ -439,6 +535,7 @@ board.addEventListener('keydown', (e) => {
   if (!e.target.matches('[data-timer-set]')) return;
   const id = e.target.closest('.pc').dataset.id;
   const text = e.target.value.trim();
+  if (!text) return; // Return in the empty box must not wipe a running timer
   const until = /^@\s*(\d{1,2}[:.]\d{2})$/.exec(text);
   if (until) {
     actGroup(id, `/api/timer/until?time=${encodeURIComponent(until[1].replace('.', ':'))}`);
@@ -458,37 +555,116 @@ board.addEventListener('change', (e) => {
   if (e.target.matches('[data-idle]')) actGroup(card.dataset.id, '/api/timerscreen/config', { idle: e.target.value });
   if (e.target.matches('[data-pip]')) actGroup(card.dataset.id, '/api/timerscreen/config', { livePip: e.target.checked });
   if (e.target.matches('[data-cue-timer]')) {
-    const minutes = Math.max(0, Number(e.target.value.replace(',', '.')) || 0);
     const n = nodeById(card.dataset.id);
-    actCue(card.dataset.id, n.state.cues.find((x) => x.id === e.target.closest('.cue').dataset.cue), 'update', { duration: minutes });
+    const cue = n.state.cues.find((x) => x.id === e.target.closest('.cue').dataset.cue);
+    const raw = e.target.value.trim().replace(',', '.');
+    // "2:30" is not minutes: say so instead of quietly clearing the cue's timer.
+    if (raw !== '' && !/^\d+(\.\d+)?$/.test(raw)) {
+      e.target.value = cue.duration || '';
+      return notice('A cue timer is in whole minutes, for example 12. Leave the box empty for no timer.');
+    }
+    actCue(card.dataset.id, cue, 'update', { duration: Number(raw) || 0 });
   }
+  // A menu or a tick box keeps the focus after it is used; let it go so the card keeps up to date.
+  if (e.target.matches('select, input[type=checkbox]')) e.target.blur();
 });
 
 // Files go to every linked computer, so a main and its backup get the same list in one drop.
 // target: null (add at the end) or { replaceCueId, number } (dropped on a cue).
 async function send(id, files, target) {
   const targets = group(id);
+  const closed = targets.filter((n) => !canManage(n));
+  if (closed.length) return notice(`${closed.map((n) => n.name).join(' and ')} ${closed.length === 1 ? 'is' : 'are'} not accepting files, so nothing was sent.`);
   const where = targets.map((n) => n.name).join(' and ');
   const base = (f) => f.split(/[\\/]/).pop();
+  // Is a file with this name already on any of the computers it goes to?
+  const check = (name) => Promise.all(targets.map(async (n) => ({ n, r: await window.center.checkFile(n.id, name) })));
+  // "Deck (2).pptx": a name that is free on every one of them, so linked computers keep identical lists.
+  const freeName = async (name) => {
+    const m = /^(.*?)(\.[^.]+)?$/.exec(name);
+    for (let i = 2; i < 60; i++) {
+      const candidate = `${m[1]} (${i})${m[2] || ''}`;
+      if (!(await check(candidate)).some((x) => x.r.ok && x.r.exists)) return candidate;
+    }
+    return `${m[1]} (${Date.now()})${m[2] || ''}`;
+  };
+  const items = [];
+  let loose = files;
+
   if (target) {
     // Dropped on a cue: its file is replaced, on the computer and in its folder.
     const cue = nodeById(id).state.cues[target.number - 1];
-    if (!confirm(`Replace the file of cue ${target.number} “${cue.name}” on ${where} with ${base(files[0])}?\n\nThe old file is moved out of the show folder, so only the latest version stays.`)) return;
-  } else {
-    // Dropped on empty space: a file that is already there is a new version of it, not another cue.
-    files = files.filter((f) => {
-      const has = targets.map((n) => [n, n.state ? n.state.cues.find((c) => c.file === base(f)) : null]).filter(([, c]) => c);
-      if (!has.length) return true;
-      return confirm(`“${base(f)}” is already on ${has.map(([n, c]) => `${n.name} (cue ${c.number})`).join(' and ')}.\n\nSend this version and replace it there?`);
+    const wrong = targets.filter((n) => n.id !== id).map((n) => [n, n.state && n.state.cues[target.number - 1]]).filter(([, c]) => !sameCue(c, cue));
+    if (wrong.length) return notice(`${wrong.map(([n, c]) => `${n.name}: cue ${target.number} there is ${c ? `“${c.name}”` : 'missing'}, not “${cue.name}”.`).join('\n')}\nNothing was replaced. Copy the list first.`);
+    const f = files[0];
+    const name = base(f);
+    const ans = await choose({
+      title: `Replace the file of cue ${target.number}?`,
+      lines: [`Cue ${target.number} “${cue.name}” on ${where} will play ${name} from now on.`, 'The file it plays now goes to the Trash on that computer, so its folder keeps only the latest version.'],
+      buttons: [{ id: 'replace', label: 'Replace', kind: 'go' }, { id: 'cancel', label: 'Cancel', kind: 'ghost' }],
     });
-    if (!files.length) return;
+    if (ans.id !== 'replace') return;
+    const found = (await check(name)).filter((x) => x.r.ok && x.r.exists);
+    // A file with that name that belongs to another cue, or to no cue, is a different presentation: leave it alone.
+    const foreign = found.some(({ r }) => !(r.usedBy.length === 1 && r.usedBy[0] === target.number));
+    if (foreign) {
+      items.push({ file: f, as: await freeName(name) });
+    } else {
+      const info = await window.center.fileInfo(f);
+      if (info && found.some(({ r }) => info.date < r.date - 2000)) {
+        const older = await choose({
+          title: 'That file is older',
+          lines: [`The file cue ${target.number} plays now: ${when(found[0].r.date)}.`, `The file you dropped: ${when(info.date)}.`],
+          warn: 'The file you dropped is OLDER than the one the cue plays now.',
+          buttons: [{ id: 'cancel', label: 'Keep the newer one', kind: 'go' }, { id: 'replace', label: 'Use the older file' }],
+        });
+        if (older.id !== 'replace') return;
+      }
+      items.push(found.length ? { file: f, as: found[0].r.name } : f);
+    }
+    loose = files.slice(1); // more files in the same drop follow as new cues
   }
+
+  let rule = null; // the answer given "for the other files too"
+  for (let i = 0; i < loose.length; i++) {
+    const f = loose[i];
+    const name = base(f);
+    const hits = (await check(name)).filter((x) => x.r.ok && x.r.exists);
+    if (!hits.length) { items.push(f); continue; }
+    let mode = rule;
+    if (!mode) {
+      const info = await window.center.fileInfo(f);
+      const used = hits.filter(({ r }) => r.usedBy.length);
+      const older = !!info && hits.some(({ r }) => info.date < r.date - 2000);
+      const likelyNewVersion = used.length > 0 && !older;
+      const ans = await choose({
+        title: `“${hits[0].r.name}” is already on ${hits.map(({ n }) => n.name).join(' and ')}`,
+        lines: [
+          used.length ? `It is the file of ${used.map(({ n, r }) => `cue ${r.usedBy.join(', ')} on ${n.name}`).join(' and ')}.` : 'No cue uses it at the moment.',
+          `On the computer: ${when(hits[0].r.date)}. The one you are sending: ${info ? when(info.date) : 'date unknown'}.`,
+          'Replace makes this the new version there (the old one goes to the Trash on that computer). Keep both adds it as a separate presentation.',
+        ],
+        warn: older ? 'The file you are sending is OLDER than the one on the computer.' : '',
+        all: loose.length - i - 1 > 0 ? 'Do the same for the other files in this drop' : '',
+        buttons: likelyNewVersion
+          ? [{ id: 'replace', label: 'Replace', kind: 'go' }, { id: 'keep', label: 'Keep both' }, { id: 'cancel', label: 'Skip this file', kind: 'ghost' }]
+          : [{ id: 'keep', label: 'Keep both', kind: 'go' }, { id: 'replace', label: 'Replace' }, { id: 'cancel', label: 'Skip this file', kind: 'ghost' }],
+      });
+      if (ans.id === 'cancel') continue;
+      mode = ans.id;
+      if (ans.all) rule = mode;
+    }
+    items.push({ file: f, as: mode === 'keep' ? await freeName(name) : hits[0].r.name });
+  }
+  if (!items.length) return;
+
   const results = await Promise.all(targets.map((n) => {
-    if (!canManage(n)) return { ok: false, error: `${n.name} is not accepting files.` };
     const t = target ? { replaceCueId: n.id === id ? target.replaceCueId : String(target.number), index: target.number + 1 } : null;
-    return window.center.send(n.id, files, t);
+    return window.center.send(n.id, items, t);
   }));
   const failed = results.filter((r) => !r.ok).map((r) => r.error);
+  const gone = linked.has(id) ? nodes.filter((n) => linked.has(n.id) && !n.online) : [];
+  if (gone.length) failed.push(`${gone.map((n) => n.name).join(' and ')} ${gone.length === 1 ? 'is' : 'are'} linked but not connected, so ${gone.length === 1 ? 'it' : 'they'} did not get ${items.length === 1 ? 'this file' : 'these files'}.`);
   if (failed.length) notice(failed.join('\n'));
 }
 
@@ -608,9 +784,18 @@ $('presetsAdd').onclick = () => {
 // ---------- dialogs ----------
 function openModal(id) { $(id).hidden = false; }
 document.querySelectorAll('.modal').forEach((m) => {
-  m.addEventListener('click', (e) => { if (e.target === m || e.target.closest('[data-close]')) m.hidden = true; });
+  m.addEventListener('click', (e) => {
+    // The question dialog must always get an answer; a click beside it means "cancel".
+    if (m.id === 'chooseModal') { if (e.target === m && chooseDone) chooseDone('cancel'); return; }
+    if (e.target === m || e.target.closest('[data-close]')) m.hidden = true;
+  });
 });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') document.querySelectorAll('.modal').forEach((m) => { m.hidden = true; }); });
+$('chooseButtons').onclick = (e) => { const b = e.target.closest('[data-choice]'); if (b && chooseDone) chooseDone(b.dataset.choice); };
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (chooseDone) { chooseDone('cancel'); return; }
+  document.querySelectorAll('.modal').forEach((m) => { m.hidden = true; });
+});
 
 async function addComputer() {
   $('addError').textContent = '';
@@ -671,9 +856,9 @@ window.center.on('upload', (u) => {
   if (!uploads.has(u.id)) uploads.set(u.id, new Map());
   const map = uploads.get(u.id);
   map.set(u.name, u);
-  // Clear a finished line after a moment; keep errors a little longer.
-  if (u.done) setTimeout(() => { if (map.get(u.name) === u) { map.delete(u.name); render(); } }, u.error ? 8000 : 2000);
-  render();
+  // A finished line goes away after a moment. An error stays until it is dismissed.
+  if (u.done && !u.error) setTimeout(() => { if (map.get(u.name) === u) { map.delete(u.name); drawSending(u.id); } }, 2500);
+  drawSending(u.id);
 });
 window.center.prefs().then((p) => { linked = new Set(p.linked || []); signatures.clear(); render(); });
 window.center.nodes().then(setNodes);

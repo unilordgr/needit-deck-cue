@@ -135,8 +135,9 @@ Connect all the computers to the same network (a simple switch is enough). The C
 
 **Files from a USB stick**
 Drop files straight from the stick. They are copied to the show computers, so the stick can be taken out.
-- Drop a file **on a cue** and you are asked whether to replace that cue's file. The old file then leaves the show folder (it goes to the Trash).
-- Drop a file with the **same name** as one that is already there and you are asked whether to replace it. It becomes the new version of that cue; no second cue is made.
+- Drop a file **on a cue** and you are asked whether to replace that cue's file. The old file goes to the Trash on that computer.
+- Drop a file with the **same name** as one that is already there and you choose: **Replace** (it is the new version; the old one goes to the Trash) or **Keep both** (it is another presentation; it is saved as `Name (2)`). The question shows both dates and warns when the file you are sending is the older one. Capitals do not matter: `deck.pptx` and `Deck.pptx` are the same name.
+- A file is never written over another cue's file. Two speakers who both bring `Presentation.pptx` both keep their deck.
 
 **Link: computers that play together**
 Press **Link** on two or more computers. They get a shared blue frame, and from then on anything you do on one happens on all of them:
@@ -145,14 +146,14 @@ Press **Link** on two or more computers. They get a shared blue frame, and from 
 - files you drop (so a main and its backup get the same list in one go)
 - changes to a cue: order, full screen, timer, remove
 
-Cues are matched by their position in the list, and you get a warning if the lists differ.
+Cues are matched by their position in the list. Before anything is done to a cue on another linked computer, the Command Center checks that the cue in that position is the same presentation there; if it is not, nothing is done on that computer and you are told. **GO** plays the cue that is next on the computer you press it on, on all of them. You get a warning when the lists or the next cue differ, and a loud one in the top bar when a linked computer is not connected.
 
 **Linking a computer that is already set up:** when you link a second computer to one that already has its list, the Command Center offers to copy everything across: the presentations, the cues with their settings, and the saved timers. If the lists drift apart later, the warning has a **Copy this list to the others** button.
 
 **Safety**
 - A show computer only accepts files after you switch on *Connect to Command Center* on it.
 - It only takes presentation files (PowerPoint, Keynote, PDF), and only into its project folder.
-- Set the same **network key** on the show computers and in the Command Center's Settings to keep other people on the network out.
+- Set the same **network key** on the show computers and in the Command Center's Settings to keep other people on the network from sending files or changing the list. The key can be any text. It does not lock the play controls (GO, Stop, timer), which Stream Deck and Companion use without a key.
 - The show computers keep their own list. If the Command Center or the network goes away, they carry on and can be run locally.
 
 **Status:** tested on one Mac with several copies of Deck Cue and the Command Center (discovery, sending files, ordering, playing, timers, Link). Not yet tested between separate computers, or on Windows.
@@ -219,8 +220,9 @@ Tested on macOS over a fullscreen WPS slideshow and the PDF player. Not yet trie
 ## The show folder
 
 Presentations you drop into Deck Cue are **copied into the show folder** on that computer (by default `needit Deck Cue` in the home folder), and the cue plays the copy. A USB stick can be taken out straight away.
-- Dropping a file **on a cue** asks before replacing its file. The old file then leaves the folder (to the Trash), so the folder holds only the latest versions.
-- Dropping a file whose **name is already in the folder** asks before replacing it. The cue that uses it gets the new version; no duplicate cue is made.
+- Dropping a file **on a cue** asks before replacing its file. The old file goes to the Trash, so the folder holds only the latest versions and a mistake can be undone.
+- Dropping a file whose **name is already in the folder** asks what it is: **Replace** (the new version of that presentation; the old one goes to the Trash) or **Keep both** (a different presentation with the same name; it is saved as `Name (2)`). The question shows both dates and warns when the file you added is the older one. Capitals do not matter.
+- A file is never written over another cue's file. Dropped on cue 1, a `Presentation.pptx` that is a different deck from cue 7's `Presentation.pptx` is saved under its own name.
 - Dropping the very same file again does nothing.
 - Settings › Playing presentations has the switch (*Copy presentations into this computer's show folder*) and the folder. With the switch off, cues play files from where they are.
 
@@ -228,7 +230,7 @@ Presentations you drop into Deck Cue are **copied into the show folder** on that
 
 Speakers change their decks until the last minute. Deck Cue watches every cue's file. This works on network shares and USB drives too.
 - **UPDATED** (blue): the file changed on disk. If that cue is live, you're told that the running show still has the old version; fire the cue again to load the new one.
-- **NEW VERSION** (amber): a newer file with the same name in the same folder. Version markers are recognised: `_v7` → `_v8`, `FINAL` → `FINAL 2`, `rev4` → `rev5`, `(3)`, `-2` → `-3`, `copy`. "Day 2" and "Day 3" stay separate decks. The cue editor offers **Use it** or **Ignore**.
+- **NEW VERSION** (amber): a newer file with the same name in the same folder. Version markers are recognised: `_v7` → `_v8`, `FINAL` → `FINAL 2`, `rev4` → `rev5`, `(3)`, `copy`. A bare number is not a version: "Day 2" and "Day 3", or `Session_1` and `Session_2`, stay separate decks. A file that another cue plays is never offered as a newer version. The cue editor offers **Use it** or **Ignore**.
 - **Settings › Newer version of a file in its folder** chooses *Show it and ask* (default), *Switch to it automatically* or *Ignore*.
 
 ## Thumbnails
@@ -479,6 +481,10 @@ Windows builds can't be made on an Apple Silicon Mac, so GitHub Actions makes th
 **Per-cue settings:** label, file, app (auto / PowerPoint / Keynote), **Fullscreen** (Default / Start slideshow / Just open), start slide, **Output** (Default / Let PowerPoint choose / a specific display), shortcut (+ Global), color, notes.
 
 **Keys while Deck Cue is in front:** Space = GO, Esc = Stop all, ← / → = previous / next slide, B = Blackout.
+
+**After a restart:** Deck Cue comes back where the show was: the same next cue, the speaker timer still counting, the stage message still up.
+
+**GO at the end:** after the last cue, GO does nothing. A held Space or a double press plays one cue, not two.
 
 **Closed by hand:** if you close a presentation yourself, or quit PowerPoint, Keynote or WPS Office, Deck Cue notices within a few seconds and the cue is no longer shown as live. (Checked with WPS Office on macOS; the PowerPoint, Keynote and Windows checks are written but not yet run against the real apps.)
 

@@ -1576,6 +1576,7 @@ async function init() {
   api.on('control-status', (status) => { if (remote) { remote.status = status; if (!$('settings').hidden) renderRemote(); } });
   // Coming back to the app (after editing a deck, installing a font…) re-checks; unchanged files are cached.
   window.addEventListener('focus', async () => { await refreshFileStatus(); renderGrid(); renderEditor(); api.preflightRun(); });
+  api.on('files-changed', async () => { await refreshFileStatus(); renderGrid(); renderEditor(); });
 }
 
 init();

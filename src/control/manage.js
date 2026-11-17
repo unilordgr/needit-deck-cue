@@ -112,7 +112,9 @@ function createManage({ getConfig, extensions, actions }) {
     if (parts[0] !== 'api') return false;
     const [, a, b, c] = parts;
     const cfg = getConfig();
-    const keyOk = !cfg.key || req.headers['x-deckcue-key'] === cfg.key;
+    // The key travels percent-encoded, so it may hold any letters (Greek too); a plain one is still accepted.
+    const sent = req.headers['x-deckcue-key'];
+    const keyOk = !cfg.key || sent === cfg.key || sent === encodeURIComponent(cfg.key);
 
     if (req.method === 'GET' && a === 'info' && !b) {
       send(res, 200, { ...actions.info(), manage: !!cfg.accept, keyRequired: !!cfg.key, keyOk });
@@ -163,7 +165,12 @@ function createManage({ getConfig, extensions, actions }) {
     if (isFileCheck) { answer(async () => { const body = await readJson(req); return actions.fileCheck(safeName(body.name)); }); return true; }
     if (isClear) answer(() => { req.resume(); return actions.clearCues(); });
     else if (isFile) answer(async () => saveFile(req, safeName(decodeURIComponent(b))));
-    else if (isCueAdd) answer(async () => { const body = await readJson(req); return actions.addCue({ ...body, file: received(body.file) }); });
+    else if (isCueAdd) answer(async () => {
+      const body = await readJson(req);
+      // missing: true keeps a place in the list for a cue whose file is not there (copying a list from another computer).
+      const file = body.missing ? path.join(getConfig().folder, safeName(body.file)) : received(body.file);
+      return actions.addCue({ ...body, file });
+    });
     else if (isTimerCfg) answer(async () => actions.timerScreenConfig(await readJson(req)));
     else if (isPresets) answer(async () => actions.setTimerPresets(await readJson(req)));
     else {

@@ -14,6 +14,9 @@ const { createUpdater } = require('../update');
 const IS_MAC = process.platform === 'darwin';
 // In development both apps share one Electron, so give the Command Center its own settings folder.
 if (!app.isPackaged) app.setPath('userData', path.join(app.getPath('appData'), 'needit Command Center (dev)'));
+// One Command Center per settings folder.
+if (!app.requestSingleInstanceLock()) app.exit(0);
+app.on('second-instance', () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
 app.setName(APP_NAME);
 
 const PRESENTATION_EXT = ['ppt', 'pptx', 'pptm', 'pps', 'ppsx', 'ppsm', 'pot', 'potx', 'dps', 'key', 'pdf'];
@@ -33,12 +36,16 @@ function savePrefs() {
 }
 
 // ---------- talking to a player ----------
+// The key is sent percent-encoded: a header cannot carry Greek or other non-Latin letters as they are.
+const keyHeader = () => (prefs.key ? { 'X-DeckCue-Key': encodeURIComponent(prefs.key) } : {});
 function request(node, method, urlPath, body, timeout = 8000) {
   return new Promise((resolve) => {
     const data = body === undefined ? null : Buffer.from(JSON.stringify(body));
-    const req = http.request({
+    let req;
+    try {
+    req = http.request({
       host: node.address, port: node.port, method, path: urlPath, timeout,
-      headers: { ...(data ? { 'Content-Type': 'application/json', 'Content-Length': data.length } : {}), ...(prefs.key ? { 'X-DeckCue-Key': prefs.key } : {}) },
+      headers: { ...(data ? { 'Content-Type': 'application/json', 'Content-Length': data.length } : {}), ...keyHeader() },
     }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
@@ -48,33 +55,43 @@ function request(node, method, urlPath, body, timeout = 8000) {
         resolve(res.statusCode >= 200 && res.statusCode < 300 ? { ok: true, ...json } : { ...json, ok: false, error: json.error || `The computer answered ${res.statusCode}` });
       });
     });
+    } catch (e) { return resolve({ ok: false, error: e.message }); }
     req.on('timeout', () => req.destroy(new Error('No answer')));
     req.on('error', (e) => resolve({ ok: false, error: e.code === 'ECONNREFUSED' ? 'That computer is not reachable.' : e.message }));
     req.end(data || undefined);
   });
 }
 
-function upload(node, file, onProgress) {
+// Send one file. `as` is the name it gets on the player (to keep two different files with one name apart).
+function upload(node, file, onProgress, as) {
   return new Promise((resolve) => {
     let total = 0;
     try { total = fs.statSync(file).size; } catch { return resolve({ ok: false, error: 'The file could not be read.' }); }
-    const req = http.request({
-      host: node.address, port: node.port, method: 'PUT', path: `/api/files/${encodeURIComponent(path.basename(file))}`,
-      headers: { 'Content-Length': total, ...(prefs.key ? { 'X-DeckCue-Key': prefs.key } : {}) },
-    }, (res) => {
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        let json = {};
-        try { json = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { /* not JSON */ }
-        resolve(res.statusCode === 200 ? { ok: true, ...json } : { ok: false, error: json.error || `The computer answered ${res.statusCode}` });
+    let finished = false;
+    let stream = null;
+    const done = (r) => { if (finished) return; finished = true; if (stream) stream.destroy(); resolve(r); };
+    let req;
+    try {
+      req = http.request({
+        host: node.address, port: node.port, method: 'PUT', path: `/api/files/${encodeURIComponent(as || path.basename(file))}`,
+        headers: { 'Content-Length': total, ...keyHeader() },
+      }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          let json = {};
+          try { json = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { /* not JSON */ }
+          done(res.statusCode === 200 ? { ok: true, ...json } : { ok: false, error: json.error || `The computer answered ${res.statusCode}` });
+        });
       });
-    });
-    req.on('error', (e) => resolve({ ok: false, error: e.message }));
+    } catch (e) { return resolve({ ok: false, error: e.message }); }
+    // A computer that froze or lost the network must not leave "Sending…" on screen for ever.
+    req.setTimeout(25000, () => req.destroy(new Error(`${node.name} stopped answering, so the file was not sent.`)));
+    req.on('error', (e) => done({ ok: false, error: /EPIPE|ECONNRESET|socket hang up/.test(e.message) ? `${node.name} went away while the file was being sent.` : e.message }));
     let sent = 0;
-    const stream = fs.createReadStream(file);
+    stream = fs.createReadStream(file);
     stream.on('data', (c) => { sent += c.length; onProgress(sent, total); });
-    stream.on('error', (e) => { req.destroy(); resolve({ ok: false, error: e.message }); });
+    stream.on('error', (e) => { req.destroy(); done({ ok: false, error: e.message }); });
     stream.pipe(req);
   });
 }
@@ -86,7 +103,7 @@ function uploadUpdate(node, pkg, asset, onProgress) {
       host: node.address, port: node.port, method: 'PUT', path: `/api/update/package/${encodeURIComponent(asset)}`,
       headers: {
         'Content-Length': pkg.size, 'X-Update-List': pkg.raw.toString('base64'), 'X-Update-Signature': pkg.signature,
-        ...(prefs.key ? { 'X-DeckCue-Key': prefs.key } : {}),
+        ...keyHeader(),
       },
     }, (res) => {
       const chunks = [];
@@ -143,7 +160,7 @@ async function updateNode(id) {
 
 function download(node, urlPath, dest) {
   return new Promise((resolve) => {
-    const req = http.get({ host: node.address, port: node.port, path: urlPath, headers: prefs.key ? { 'X-DeckCue-Key': prefs.key } : {} }, (res) => {
+    const req = http.get({ host: node.address, port: node.port, path: urlPath, headers: keyHeader() }, (res) => {
       if (res.statusCode !== 200) {
         const chunks = [];
         res.on('data', (c) => chunks.push(c));
@@ -177,7 +194,7 @@ function snapshot() {
   return [...nodes.values()].sort((a, b) => a.name.localeCompare(b.name)).map((n) => ({
     id: n.id, name: n.name, platform: n.platform, version: n.version, address: n.address, port: n.port,
     online: n.online, manage: n.manage, keyRequired: n.keyRequired, keyOk: n.keyOk, manual: n.manual, state: n.state,
-    clockOffset: n.clockOffset || 0, updating: updating.get(n.id) || null,
+    clockOffset: n.clockOffset || 0, updating: updating.get(n.id) || null, clash: !!n.clash, copying: copying.has(n.id),
   }));
 }
 
@@ -221,6 +238,15 @@ function upsert(info, address, manual = false) {
     node = { id: info.id, name: info.name || address, platform: info.platform, version: info.version, address, port: info.port, online: false, manage: true, keyRequired: false, keyOk: true, manual, state: null, ws: null, lastSeen: 0 };
     nodes.set(info.id, node);
   }
+  // Two computers that announce the same identity (settings copied from one to the other) would share one card
+  // and the Command Center would be wired to only one of them. Each run of Deck Cue has its own mark.
+  if (info.run) {
+    node.runs = node.runs || new Map();
+    node.runs.set(info.run, Date.now());
+    for (const [run, seen] of node.runs) if (Date.now() - seen > 7000) node.runs.delete(run);
+    const clash = node.runs.size > 1;
+    if (clash !== !!node.clash) { node.clash = clash; pushNodes(); }
+  }
   // Keep the address that works; switch only when the player is not connected (it moved or restarted).
   if (!node.ws) { node.address = address; node.port = info.port; }
   node.lastSeen = Date.now();
@@ -256,12 +282,14 @@ async function probeManual() {
 function prune() {
   const now = Date.now();
   for (const n of nodes.values()) {
-    if (!n.online && !n.manual && now - n.lastSeen > 120000) { nodes.delete(n.id); pushNodes(); }
+    // A linked computer stays on the board when it drops out: the operator must see that the backup is gone.
+    if (!n.online && !n.manual && !(prefs.linked || []).includes(n.id) && now - n.lastSeen > 120000) { nodes.delete(n.id); pushNodes(); }
     else if (!n.online && now - n.lastSeen < 10000) connect(n);
   }
 }
 
 // ---------- sending files ----------
+// files: paths, or { file, as } to give a file another name on the player.
 async function sendFiles(id, files, target) {
   const node = nodes.get(id);
   if (!node) return { ok: false, error: 'That computer is gone.' };
@@ -269,12 +297,13 @@ async function sendFiles(id, files, target) {
   let index = target && Number.isInteger(target.index) ? target.index : null;
   const errors = [];
   for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    const name = path.basename(file);
+    const item = typeof files[i] === 'string' ? { file: files[i] } : files[i];
+    const file = item.file;
+    const name = item.as || path.basename(file);
     if (!PRESENTATION_EXT.includes(path.extname(name).slice(1).toLowerCase())) { errors.push(`${name} is not a presentation`); continue; }
     report({ name, sent: 0, total: 1 });
     let last = 0;
-    const up = await upload(node, file, (sent, total) => { if (Date.now() - last > 100 || sent === total) { last = Date.now(); report({ name, sent, total }); } });
+    const up = await upload(node, file, (sent, total) => { if (Date.now() - last > 150 || sent === total) { last = Date.now(); report({ name, sent, total }); } }, item.as);
     if (!up.ok) { errors.push(`${name}: ${up.error}`); report({ name, done: true, error: up.error }); continue; }
     // The first file dropped on a cue replaces that cue's file; everything else becomes a new cue.
     const res = i === 0 && target && target.replaceCueId
@@ -288,52 +317,85 @@ async function sendFiles(id, files, target) {
 
 // Makes the target computers the same as the source: its presentations, cues (with their settings),
 // saved timers and screen settings. Files travel source -> here -> target.
+// Make the targets identical to the source: files, cues with their settings, saved timers, and which cue is next.
+// Everything is fetched and sent before a target's list is touched, so a copy that fails halfway leaves the
+// target as it was. One copy per target at a time.
+const copying = new Set();
 async function copyShow(sourceId, targetIds) {
   const src = nodes.get(sourceId);
   if (!src) return { ok: false, error: 'That computer is gone.' };
-  const showRes = await request(src, 'GET', '/api/show');
-  if (!showRes.ok || !Array.isArray(showRes.cues)) return { ok: false, error: `Could not read the list of ${src.name}.` };
-  const report = (id, u) => { if (win && !win.isDestroyed()) win.webContents.send('upload', { id, ...u }); };
+  const busy = targetIds.filter((t) => copying.has(t)).map((t) => (nodes.get(t) || {}).name);
+  if (busy.length) return { ok: false, error: `A copy to ${busy.join(' and ')} is still running. Wait for it to finish.` };
+  targetIds.forEach((t) => copying.add(t));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'deckcue-copy-'));
-  const local = new Map(); // source cue id -> file fetched to this computer
   const errors = [];
+  const lastReport = new Map();
+  const report = (id, u) => {
+    // A big file means tens of thousands of progress events: pass on a few per second.
+    const key = `${id}/${u.name}`;
+    if (!u.done && u.sent !== u.total && Date.now() - (lastReport.get(key) || 0) < 150) return;
+    lastReport.set(key, Date.now());
+    if (win && !win.isDestroyed()) win.webContents.send('upload', { id, ...u });
+  };
   try {
+    const showRes = await request(src, 'GET', '/api/show');
+    if (!showRes.ok || !Array.isArray(showRes.cues)) return { ok: false, error: `Could not read the list of ${src.name}.` };
+    // 1. Fetch every file from the source once.
+    const items = [];
+    for (let i = 0; i < showRes.cues.length; i++) {
+      const cue = showRes.cues[i];
+      const name = cue.file && cue.file.path ? cue.file.path.split(/[\\/]/).pop() : null;
+      if (!name) continue;
+      let local = items.find((x) => x.name === name && x.local);
+      local = local ? local.local : null;
+      if (!local) {
+        const dir = path.join(tmp, String(i));
+        fs.mkdirSync(dir);
+        const got = await download(src, `/api/cue/${encodeURIComponent(cue.id)}/download`, path.join(dir, name));
+        if (got.ok) local = path.join(dir, name);
+      }
+      items.push({ cue, name, local });
+    }
+    const missing = items.filter((x) => !x.local);
     for (const tid of targetIds) {
       const t = nodes.get(tid);
-      if (!t) continue;
+      if (!t || !t.online) { errors.push(`${t ? t.name : 'A computer'} is not connected, so nothing was copied to it.`); continue; }
+      // 2. Send the files. The target's list is not touched yet.
+      let sentAll = true;
+      const sentNames = new Set();
+      for (const x of items) {
+        if (!x.local || sentNames.has(x.name)) continue;
+        report(tid, { name: x.name, sent: 0, total: 1 });
+        const up = await upload(t, x.local, (sent, total) => report(tid, { name: x.name, sent, total }));
+        report(tid, { name: x.name, done: true, error: up.ok ? null : up.error });
+        if (!up.ok) { errors.push(`${t.name}, ${x.name}: ${up.error} Its list was left as it was.`); sentAll = false; break; }
+        sentNames.add(x.name);
+      }
+      if (!sentAll) continue;
+      // 3. Now replace the list.
       const cleared = await request(t, 'POST', '/api/cues/clear');
       if (!cleared.ok) { errors.push(`${t.name}: ${cleared.error}`); continue; }
-      for (let i = 0; i < showRes.cues.length; i++) {
-        const cue = showRes.cues[i];
-        const name = cue.file && cue.file.path ? cue.file.path.split(/[\\/]/).pop() : null;
-        if (!name) continue;
-        report(tid, { name, sent: 0, total: 1 });
-        if (!local.has(cue.id)) {
-          const dir = path.join(tmp, String(i));
-          fs.mkdirSync(dir);
-          const got = await download(src, `/api/cue/${encodeURIComponent(cue.id)}/download`, path.join(dir, name));
-          if (!got.ok) { errors.push(`${name}: ${got.error}`); report(tid, { name, done: true, error: got.error }); continue; }
-          local.set(cue.id, path.join(dir, name));
-        }
-        const up = await upload(t, local.get(cue.id), (sent, total) => report(tid, { name, sent, total }));
-        let res = up;
-        if (up.ok) {
-          res = await request(t, 'POST', '/api/cues', { file: up.name, label: cue.label || '', autoSlideshow: cue.autoSlideshow, duplicate: true });
-          if (res.ok) {
-            await request(t, 'POST', `/api/cue/${encodeURIComponent(res.id)}/update`, {
-              startSlide: cue.startSlide || 1, duration: cue.duration || 0, notes: cue.notes || '', color: cue.color || '#3a4150',
-              output: ['default', 'auto', 'window'].includes(cue.output) ? cue.output : 'default', presenterControl: cue.presenterControl !== false,
-            });
-          }
-        }
-        if (!res.ok) errors.push(`${t.name}, ${name}: ${res.error}`);
-        report(tid, { name, done: true, error: res.ok ? null : res.error });
+      for (const x of items) {
+        const cue = x.cue;
+        // A cue whose file is missing on the source keeps its place, so the positions stay the same on both.
+        const res = await request(t, 'POST', '/api/cues', { file: x.name, label: cue.label || '', autoSlideshow: cue.autoSlideshow, duplicate: true, ...(x.local ? {} : { missing: true }) });
+        if (res.ok) {
+          await request(t, 'POST', `/api/cue/${encodeURIComponent(res.id)}/update`, {
+            startSlide: cue.startSlide || 1, duration: cue.duration || 0, notes: cue.notes || '', color: cue.color || '#3a4150',
+            output: ['default', 'auto', 'window'].includes(cue.output) ? cue.output : 'default', presenterControl: cue.presenterControl !== false,
+          });
+        } else errors.push(`${t.name}, ${x.name}: ${res.error}`);
       }
       const st = showRes.settings || {};
       if (Array.isArray(st.timerPresets)) await request(t, 'POST', '/api/timer/presets', { presets: st.timerPresets });
       if (st.timerScreen) await request(t, 'POST', '/api/timerscreen/config', { idle: st.timerScreen.idle, livePip: st.timerScreen.livePip, title: st.timerScreen.title, showClock: st.timerScreen.showClock });
+      // The same cue is next on both.
+      const next = src.state && src.state.next;
+      if (next && next.number) await request(t, 'POST', `/api/cue/${next.number}/arm`);
     }
+    if (missing.length) errors.push(`${missing.map((x) => `“${x.name}”`).join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing on ${src.name}, so ${missing.length === 1 ? 'its cue is' : 'those cues are'} marked missing on the copy too.`);
   } finally {
+    targetIds.forEach((t) => copying.delete(t));
     fs.rm(tmp, { recursive: true, force: true }, () => {});
   }
   return errors.length ? { ok: false, error: errors.join('\n') } : { ok: true };
@@ -371,6 +433,13 @@ function setupIpc() {
   ipcMain.handle('update:install', () => updater.install().catch((e) => ({ ...updater.state(), error: e.message })));
   ipcMain.handle('update:seen', () => updater.seen());
   ipcMain.handle('node:update', (_e, id) => updateNode(String(id)));
+  // Before a file is sent: is one with that name already on that computer, and which cues use it?
+  ipcMain.handle('files:check', async (_e, id, name) => {
+    const node = nodes.get(String(id));
+    if (!node) return { ok: false, error: 'That computer is gone.' };
+    return request(node, 'POST', '/api/files/check', { name: String(name) });
+  });
+  ipcMain.handle('files:info', (_e, file) => { try { const st = fs.statSync(String(file)); return { size: st.size, date: st.mtimeMs }; } catch { return null; } });
   ipcMain.handle('prefs:get', () => ({ key: prefs.key, name: myName, linked: prefs.linked }));
   ipcMain.handle('prefs:set', async (_e, patch) => {
     if ('linked' in patch) prefs.linked = Array.isArray(patch.linked) ? patch.linked.map(String) : [];
@@ -430,6 +499,8 @@ app.whenReady().then(() => {
     }, 500);
   }
   setInterval(prune, 3000);
+  // "Connect to Command Center" or the key can change on a player while it is connected: ask again now and then.
+  setInterval(async () => { for (const n of nodes.values()) if (n.online) { const before = `${n.manage}${n.keyRequired}${n.keyOk}`; await refreshInfo(n); if (before !== `${n.manage}${n.keyRequired}${n.keyOk}`) pushNodes(); } }, 5000);
 });
 
 app.on('will-quit', () => { if (updater) updater.onQuit(); });

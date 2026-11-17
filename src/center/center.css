@@ -202,3 +202,25 @@ body.mac .topbar { padding-left: 88px; }
 .update-note { color: #ffd66b; font-size: 16px; line-height: 1.4; }
 .update-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .update-box label.check { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 17px; }
+
+/* ---------- A question with named answers ---------- */
+#chooseModal { z-index: 40; }
+.choose-card { width: min(680px, 100%); display: flex; flex-direction: column; gap: 14px; }
+.choose-card h2 { margin: 0; font: 800 28px/1.15 var(--num, var(--ui)); }
+.choose-lines p { margin: 0 0 8px; font-size: 18px; line-height: 1.45; color: var(--text); }
+.choose-lines p:last-child { color: var(--muted); font-size: 16px; }
+.choose-warn { background: #4a1512; border: 1px solid #e8352e; color: #ffd9d6; font-size: 18px; font-weight: 700; padding: 12px 14px; border-radius: 8px; }
+.choose-card label.check { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 17px; }
+.choose-buttons { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+.choose-buttons .btn { font-size: 18px; padding: 12px 20px; min-width: 150px; }
+
+/* ---------- Messages from a show computer, and warnings ---------- */
+.pc-msg { padding: 10px 14px; font-size: 16px; line-height: 1.35; border-bottom: 1px solid var(--line); background: var(--signal-deep); color: #cfe0ff; }
+.pc-msg.warn { background: var(--armed-deep); color: #ffd66b; }
+.pc-msg.error { background: #4a1512; color: #ffd9d6; font-weight: 600; }
+.pc-banner.bad { background: #4a1512; color: #ffd9d6; }
+.pc-banner .btn { margin-top: 6px; }
+.summary.alarm { color: #ff9d97; font-weight: 700; }
+.sending .up.err { display: flex; align-items: flex-start; gap: 10px; }
+.sending .up.err span { flex: 1; min-width: 0; }
+.sending:empty { display: none; }

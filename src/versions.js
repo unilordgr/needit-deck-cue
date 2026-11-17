@@ -4,9 +4,9 @@
 const fs = require('fs');
 const path = require('path');
 
-// Trailing version markers, stripped repeatedly to find a file's "stem". Plain numbers only count after
-// "_" or "-" (so "Day 2.pptx" and "Day 3.pptx" stay separate decks).
-const VERSION_TAIL = /([\s._-]*(v(?:ersion)?\s*\d+(?:\.\d+)*|rev(?:ision)?\s*\d+|final(?:\s*\d+)?|latest|updated|new|copy(?:\s*\d+)?|\(\d+\))|[_-]\d{1,3})$/i;
+// Trailing version markers, stripped repeatedly to find a file's "stem". A bare number is not one:
+// "Session_1.pptx" and "Session_2.pptx", or "Day 2" and "Day 3", are different talks.
+const VERSION_TAIL = /[\s._-]*(v(?:ersion)?\s*\d+(?:\.\d+)*|rev(?:ision)?\s*\d+|final(?:\s*\d+)?|latest|updated|new|copy(?:\s*\d+)?|\(\d+\))$/i;
 
 function stem(file) {
   let s = path.basename(file).replace(/\.[^.]+$/, '');
@@ -47,6 +47,8 @@ function createVersionWatcher({ getCues, onChange, intervalMs = 3000 }) {
 
     let changed = false;
     const seen = new Set();
+    // A file that a cue already plays is that cue's presentation, never a "newer version" of another one.
+    const inUse = new Set(cues.map((c) => c.file && c.file.path).filter(Boolean));
     for (const cue of cues) {
       const p = cue.file && cue.file.path;
       if (!p) continue;
@@ -71,7 +73,7 @@ function createVersionWatcher({ getCues, onChange, intervalMs = 3000 }) {
       let best = null;
       if (fam) {
         for (const f of listFolder(path.dirname(p))) {
-          if (f.path === p || family(f.name) !== fam || stem(f.name) !== s || f.mtime <= mine || rec.ignored.has(f.path)) continue;
+          if (f.path === p || inUse.has(f.path) || family(f.name) !== fam || stem(f.name) !== s || f.mtime <= mine || rec.ignored.has(f.path)) continue;
           if (!best || f.mtime > best.mtime) best = f;
         }
       }
@@ -93,6 +95,8 @@ function createVersionWatcher({ getCues, onChange, intervalMs = 3000 }) {
 
   return {
     start() { if (!timer) { timer = setInterval(scan, intervalMs); scan(); } },
+    // Report what is known again (the setting for newer versions changed).
+    refresh() { onChange(snapshot()); },
     stop() { clearInterval(timer); timer = null; },
     scan,
     // The cue was (re)loaded or the operator saw the change: clear the UPDATED mark.

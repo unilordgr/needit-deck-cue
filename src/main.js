@@ -203,6 +203,9 @@ function loadInitial() {
     files: { ...DEFAULT_FILES, ...(saved.files || {}) },
     update: { ...DEFAULT_UPDATE, ...(saved.update || {}) },
   };
+  // Settings copied to another computer (a portable folder, a disk image) must not make two computers one.
+  if (prefs.center.host && prefs.center.host !== os.hostname()) prefs.center.id = '';
+  prefs.center.host = os.hostname();
   if (!prefs.center.id) prefs.center.id = crypto.randomUUID();
   if (!prefs.center.folder) prefs.center.folder = path.join(os.homedir(), 'needit Deck Cue');
   if (!prefs.presenter.pin) prefs.presenter.pin = newPin();
@@ -428,6 +431,18 @@ async function refreshThumbs() {
     || Object.keys(next).some((k) => next[k] !== thumbs[k]);
   thumbs = next;
   if (changed && win && !win.isDestroyed()) win.webContents.send('thumbs', thumbs);
+}
+
+// ---------- a file that disappears ----------
+// The stick was pulled out, or someone moved the file: say so within seconds, not when the window is next clicked.
+let missingKey = '';
+function checkMissing() {
+  const key = show.cues.filter((c) => !c.file || !fs.existsSync(c.file.path)).map((c) => c.id).join(',');
+  if (key === missingKey) return;
+  missingKey = key;
+  if (win && !win.isDestroyed()) win.webContents.send('files-changed');
+  if (control) control.update();
+  schedulePreflight();
 }
 
 // ---------- version management ----------
@@ -716,8 +731,9 @@ function playerName() {
   return prefs.center.name || `${os.hostname().replace(/\.local$/, '')}${PROFILE ? ` (${PROFILE})` : ''}`;
 }
 
+const RUN_ID = crypto.randomUUID().slice(0, 8); // this run of the app; a Command Center uses it to spot two computers with one identity
 function playerInfo() {
-  return { app: APP_NAME, id: prefs.center.id, name: playerName(), platform: process.platform, version: app.getVersion(), show: show.showName, update: updateSummary() };
+  return { app: APP_NAME, id: prefs.center.id, run: RUN_ID, name: playerName(), platform: process.platform, version: app.getVersion(), show: show.showName, update: updateSummary() };
 }
 
 // What a Command Center needs to know about this computer's version.
@@ -1277,6 +1293,7 @@ function remoteState() {
       idle: show.settings.timerScreen.idle, livePip: !!show.settings.timerScreen.livePip,
     },
     player: { id: prefs.center.id, name: playerName(), platform: process.platform, version: app.getVersion() },
+    manage: { accept: !!prefs.center.accept, keyRequired: !!prefs.center.key },
     update: updateSummary(),
     timer: { duration: state.timer.duration, remaining: timerRemaining(), running: state.timer.running, endsAt: state.timer.endsAt },
     timerPresets: show.settings.timerPresets,
@@ -1285,6 +1302,7 @@ function remoteState() {
     loading: ref(state.busyCueId && show.cues.find((c) => c.id === state.busyCueId)),
     blackout: !!state.blackout,
     message: state.message || null,
+    messageLevel: state.message ? state.messageLevel || 'info' : null,
     cues: show.cues.map((c, i) => {
       const missing = !c.file || !fs.existsSync(c.file.path);
       const st = c.id === state.busyCueId ? 'loading' : c.id === state.liveCueId ? 'live' : nextCue && c.id === nextCue.id ? 'next' : missing ? 'missing' : 'idle';
@@ -1332,7 +1350,10 @@ function updateTitle() {
 function setupIpc() {
   ipcMain.handle('show:get', () => ({ show, showPath, dirty, shortcutReport, state }));
   ipcMain.handle('show:update', (_e, s) => {
+    const policy = show.settings.newerVersions;
     show = normalizeShow(s); dirty = true;
+    // "Ignore it" or "switch automatically" applies to what is already on screen, not only to the next change.
+    if (versions && show.settings.newerVersions !== policy) setImmediate(() => versions.refresh());
     if (state.armedCueId && !show.cues.some((c) => c.id === state.armedCueId)) state.armedCueId = null;
     autosave(); registerShortcuts(); updateTitle();
     updateTimerScreen();
@@ -1602,6 +1623,7 @@ app.whenReady().then(() => {
   versions.start();
   setInterval(pollPosition, 1000);
   setInterval(pollAlive, 2000);
+  setInterval(checkMissing, 3000);
   // While a backup is connected, re-send the state every few seconds so it can correct any drift
   // (e.g. its own clicker moved a slide) even when nothing changes on the main.
   setInterval(() => { if (followers.length && control) control.update(); }, 3000);
