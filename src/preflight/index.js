@@ -113,7 +113,10 @@ async function checkCue(ctx) {
     const out = ctx.display.bounds.width / ctx.display.bounds.height;
     if (Math.abs(deck - out) / out > 0.03) {
       const where = deck < out ? 'black bars at the sides' : 'black bars above and below';
-      add('warn', `${ratioName(a.width, a.height)} slides on a ${ratioName(ctx.display.bounds.width, ctx.display.bounds.height)} output (${ctx.displayLabel}): ${where}.`);
+      // With no second screen connected this compares against the computer's own screen, which is not the
+      // show's output: worth knowing, not worth an amber Preflight during the whole preparation.
+      if (ctx.onlyOwnScreen) add('info', `${ratioName(a.width, a.height)} slides. No projector or second screen is connected yet, so the output shape could not be checked.`);
+      else add('warn', `${ratioName(a.width, a.height)} slides on a ${ratioName(ctx.display.bounds.width, ctx.display.bounds.height)} output (${ctx.displayLabel}): ${where}.`);
     }
   }
 

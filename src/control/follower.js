@@ -64,7 +64,12 @@ function createFollower({ onEvent, onState, onStatus }) {
     connect();
   }
 
-  return { start, stop, getStatus: () => status };
+  // To the main, when connected (for example what this backup thinks of its own state).
+  function send(msg) {
+    try { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); } catch { /* the link is closing */ }
+  }
+
+  return { start, stop, send, getStatus: () => status };
 }
 
 module.exports = { createFollower };

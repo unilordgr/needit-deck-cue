@@ -129,7 +129,9 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     if (a === 'timerscreen' && !b) {
       const st = query.get('state');
       // content=clock shows the time of day instead of the timer.
-      return { action: 'timerscreen', arg: { on: st === 'on' ? true : st === 'off' ? false : undefined, content: query.get('content') === 'clock' ? 'clock' : 'timer' } };
+      // Without ?content the toggle hides whatever is up (a clock too) instead of switching it to the timer.
+      const content = query.get('content');
+      return { action: 'timerscreen', arg: { on: st === 'on' ? true : st === 'off' ? false : undefined, content: content === 'clock' ? 'clock' : content === 'timer' || st === 'on' ? 'timer' : undefined } };
     }
     if (a === 'showmode' && !b) {
       const st = query.get('state');
@@ -219,7 +221,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
         else if (parts[0] === 'message' && parts.length === 1) run('message', { text: args.length ? String(args[0]) : '', flash: args.length > 1 && Boolean(args[1]) });
         else if (parts[0] === 'message' && parts[1] === 'clear' && parts.length === 2) run('message', { text: '', flash: false });
         else if (parts[0] === 'showmode' && parts.length === 1) run('showmode', args.length ? Boolean(args[0]) : undefined);
-        else if (parts[0] === 'timerscreen' && parts.length === 1) run('timerscreen', { on: args.length ? Boolean(args[0]) : undefined, content: 'timer' });
+        else if (parts[0] === 'timerscreen' && parts.length === 1) run('timerscreen', { on: args.length ? Boolean(args[0]) : undefined, content: args.length && args[0] ? 'timer' : undefined });
       } catch { /* ignore bad OSC input */ }
     }
   }
@@ -285,6 +287,12 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
         if (url.searchParams.get('role') === 'backup') {
           ws.backupName = (url.searchParams.get('name') || req.socket.remoteAddress || 'backup').slice(0, 64);
           ws.on('close', reportFollowers);
+          ws.on('message', (data) => {
+            try {
+              const m = JSON.parse(data.toString());
+              if (m.type === 'backup-status') { ws.backupStatus = { issue: m.issue ? String(m.issue).slice(0, 200) : null, held: !!m.held }; reportFollowers(); }
+            } catch { /* not for us */ }
+          });
           reportFollowers();
         } else if (url.searchParams.get('role') === 'center') {
           ws.centerName = (url.searchParams.get('name') || req.socket.remoteAddress || 'Command Center').slice(0, 64);
@@ -310,7 +318,8 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
 
   function reportFollowers() {
     if (!wss) return onFollowers([]);
-    onFollowers([...wss.clients].filter((c) => c.backupName && c.readyState === 1).map((c) => c.backupName));
+    const backups = [...wss.clients].filter((c) => c.backupName && c.readyState === 1);
+    onFollowers(backups.map((c) => c.backupName), backups.map((c) => ({ name: c.backupName, ...(c.backupStatus || { issue: null, held: false }) })));
   }
 
   // Sent the moment an action happens on this machine (before it finishes), for backups to follow.

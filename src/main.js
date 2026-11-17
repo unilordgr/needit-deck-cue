@@ -59,6 +59,7 @@ let centers = []; // names of Command Centers connected to this player
 let control = null;
 let follower = null;
 let followers = [];       // names of backups following this machine
+let followerDetails = []; // what each of them says about itself: { name, issue, held }
 let lastFollowAction = 0; // when the backup last fired/stopped to follow the main (debounces state checks)
 let lastBlackoutSync = 0;
 let lastSlideSync = 0;
@@ -272,6 +273,10 @@ function resolveCueFile(cue) {
     const found = candidates.find((p) => fs.existsSync(p));
     if (found) { cue.file.path = found; dirty = true; autosave(); sendShow(); return found; }
   }
+  // A show made on another computer carries that computer's paths. The files are usually here already, in
+  // this computer's show folder, under the same name.
+  const here = nameInFolder(prefs.center.folder, cue.file.path.split(/[\\/]/).pop());
+  if (here) { cue.file.path = path.join(prefs.center.folder, here); dirty = true; autosave(); sendShow(); return cue.file.path; }
   return null;
 }
 
@@ -547,6 +552,7 @@ function preflightContext(cue) {
     accessibilityOk: axTrusted(),
     display,
     displayLabel: label ? label.label : 'main display',
+    onlyOwnScreen: screen.getAllDisplays().length === 1,
     outputMissing: programWarning ? `Program window (only PDF cues can play into it; ${presenters.APPS[appName] ? presenters.APPS[appName].name : appName} will use a screen)` : outputMissing,
     startSlide: Number(cue.startSlide) || 1,
   };
@@ -622,9 +628,16 @@ function setTimerScreenForced(on, content) {
   const rt = state.timerScreen;
   // Asking for the other content while it is already up switches it instead of hiding it.
   const switching = on === undefined && rt.forced && content && content !== rt.forcedContent;
+  const was = rt.forced;
   rt.forced = switching ? true : on === undefined ? !rt.forced : !!on;
   if (content) rt.forcedContent = content;
+  else if (rt.forced && !was) rt.forcedContent = 'timer'; // turned on without saying what: the timer
   broadcast();
+}
+
+// What a file looks like on disk right now: changes when a new version replaces it.
+function fileStamp(file) {
+  try { const st = fs.statSync(file); return `${st.mtimeMs}:${st.size}`; } catch { return null; }
 }
 
 // ---------- show folder: bringing files in, keeping only the latest ----------
@@ -714,8 +727,30 @@ async function importFile(src, mode) {
     fs.rm(part, { recursive: true, force: true }, () => {});
     return { error: replacing ? `${path.basename(dest)} is in use and could not be replaced. Stop its cue and try again.` : `${name} could not be copied into the show folder. ${e.code === 'ENOSPC' ? 'The disk is full.' : e.code === 'EACCES' || e.code === 'EPERM' ? 'The folder cannot be written to.' : e.message}` };
   }
+  const media = await copyLinkedMedia(src, dest);
   if (versions) versions.scan();
-  return { path: dest, replaced: replacing, kept: !!existing && mode === 'keep', usedBy: cuesUsing(dest) };
+  return { path: dest, replaced: replacing, kept: !!existing && mode === 'keep', usedBy: cuesUsing(dest), media };
+}
+
+// Videos and sounds that a deck links to (rather than embeds) sit beside it on the stick. Without them the
+// deck plays with black boxes, so they are copied along, into the same place beside the copy.
+async function copyLinkedMedia(src, dest) {
+  if (!['.pptx', '.pptm', '.ppsx', '.ppsm'].includes(path.extname(src).toLowerCase())) return [];
+  let info;
+  try { info = require('./preflight/pptx').analyzePptx(src); } catch { return []; }
+  const copied = [];
+  for (const m of info.media || []) {
+    if (!m.linked || m.web || !m.exists) continue;
+    const rel = path.relative(path.dirname(src), m.target);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue; // only what is beside the deck, or in a folder beside it
+    const to = path.join(path.dirname(dest), rel);
+    try {
+      await fs.promises.mkdir(path.dirname(to), { recursive: true });
+      if (!fs.existsSync(to) || !(await sameContent(m.target, to).catch(() => false))) await fs.promises.copyFile(m.target, to);
+      copied.push(rel);
+    } catch { /* preflight will say it is missing */ }
+  }
+  return copied;
 }
 
 // After a cue got a new file: the old one leaves the show folder (to the Trash), unless another cue
@@ -984,16 +1019,21 @@ async function fireCue(id) {
   try {
     const closePrev = show.settings.closePrevious && prev && prev.file !== file;
     if (prev && prev.app !== appName && auto) await presenters.stop(prev.app).catch(() => {});
+    // The same cue fired again after its file changed on disk (a new version arrived while it was live): the
+    // app still has the old version open, and opening the file again would only bring that one forward.
+    // Close it first, so the new version is loaded. Compared by date and size as they were when it was loaded,
+    // because a file sent from another computer keeps its own, possibly older, date.
+    const reload = !!prev && prev.file === file && prev.app === appName && appName !== 'pdf' && !!prev.stamp && fileStamp(file) !== prev.stamp;
     // WPS can't close a document while a slideshow is running, and switching its tabs pulls the editor
     // in front of the show, so close the previous deck before starting the next one.
-    const closeFirst = closePrev && prev.app === 'wps';
+    const closeFirst = (closePrev && prev.app === 'wps') || reload;
     if (closeFirst) {
-      if (auto) await presenters.stop('wps').catch(() => {});
+      if (auto || reload) await presenters.stop(prev.app).catch(() => {});
       await presenters.close(prev.app, prev.file).catch(() => {});
     }
     const result = await presenters.fire(appName, { file, startSlide: Number(cue.startSlide) || 1, auto, bounds: display ? display.bounds : null, program });
     if (closePrev && !closeFirst) await presenters.close(prev.app, prev.file).catch(() => {});
-    state.live = { cueId: id, app: appName, file, since: Date.now() };
+    state.live = { cueId: id, app: appName, file, since: Date.now(), stamp: fileStamp(file) };
     if (versions) versions.clearChanged(id); // the freshly loaded file is the current one
     const minutes = Number(cue.duration) || 0;
     if (minutes > 0 && show.settings.timerAutoStart !== false) {
@@ -1038,7 +1078,16 @@ function go() {
 
 async function stopAll() {
   emit({ type: 'stop' });
-  await Promise.all(Object.keys(presenters.APPS).map((a) => presenters.stop(a).catch(() => {})));
+  const live = state.live;
+  const results = await Promise.all(Object.keys(presenters.APPS).map((a) => presenters.stop(a).then(() => null, (e) => ({ app: a, error: e.message }))));
+  // If the app with the live show could not be stopped, the show is still up: do not pretend otherwise.
+  const failed = live && results.find((r) => r && r.app === live.app);
+  if (failed) {
+    // Only when the show can still be seen running. An app that merely complained (nothing was playing) is not live.
+    const still = await presenters.position(live.app).catch(() => null);
+    if (still) return setMessage(`${presenters.APPS[failed.app] ? presenters.APPS[failed.app].name : failed.app} could not be stopped: ${failed.error}`, 'error');
+    setMessage(`Stop: ${presenters.APPS[failed.app] ? presenters.APPS[failed.app].name : failed.app} answered with an error (${failed.error}). Check the output screen.`, 'warn');
+  }
   state.liveCueId = null; state.live = null; registerShortcuts(); broadcast();
 }
 
@@ -1080,8 +1129,13 @@ function registerShortcuts() {
   });
   // While a PDF is live, take the keys a presentation clicker sends from whichever app has focus.
   // (PowerPoint/WPS/Keynote handle them themselves, so this applies to the built-in player only.)
+  // While Deck Cue itself is in front the arrows are left alone: there they belong to the cue list and to the
+  // text boxes, and the window passes Left / Right on to the slides itself. Page Up / Page Down, which is what
+  // most clickers send, stay taken either way.
   if (state.live && state.live.app === 'pdf') {
+    const own = !!win && !win.isDestroyed() && win.isFocused();
     for (const [accel, dir] of CLICKER_KEYS) {
+      if (own && !accel.startsWith('Page')) continue;
       if (!used.has(accel)) { try { globalShortcut.register(accel, () => navSlide(dir)); } catch { /* ignore */ } }
     }
   }
@@ -1200,6 +1254,7 @@ function syncStatus() {
     role: prefs.sync.role,
     link: follower ? follower.getStatus() : { state: 'off' },
     followers,
+    followerTrouble: followerDetails.filter((d) => d.issue || d.held),
     issue: isBackup() ? state.syncIssue || null : null,
     held: isBackup() && followHeld,
   };
@@ -1208,6 +1263,13 @@ function syncStatus() {
 function sendSync() {
   if (win && !win.isDestroyed()) win.webContents.send('sync', syncStatus());
   updateTitle();
+  reportToMain();
+}
+
+// A backup tells its main when it is not following: its show differs, or it is holding after the main came back.
+// Otherwise the main shows a green "backup connected" while the backup would do something else.
+function reportToMain() {
+  if (follower && isBackup()) follower.send({ type: 'backup-status', issue: state.syncIssue || null, held: !!followHeld });
 }
 
 function startSync() {
@@ -1521,12 +1583,13 @@ function createWindow() {
       win.close();
       return;
     }
-    if (dirty && show.cues.length && !app.isQuitting) {
-      e.preventDefault();
-      if (await confirmDiscard()) { app.isQuitting = true; app.quit(); }
-    }
+    // No "save changes?" here: the show is autosaved and comes back as it was the next time Deck Cue opens.
   });
   // Hidden helper windows (PDF probe, PDF player) must not keep the app running.
+  // The clicker keys are held only while another app is in front (see registerShortcuts).
+  const refocus = () => { if (state.live && state.live.app === 'pdf') registerShortcuts(); };
+  win.on('focus', refocus);
+  win.on('blur', refocus);
   win.on('closed', () => { win = null; app.quit(); });
   updateTitle();
 }
@@ -1568,6 +1631,7 @@ app.whenReady().then(() => {
     onState: onMainState,
     onStatus: (st) => {
       if (st.state === 'lost') followHeld = true;
+      if (st.state === 'connected') setTimeout(reportToMain, 300);
       if (process.env.DECKCUE_DEBUG) console.log(`[sync] link ${st.state}${followHeld ? ' (held)' : ''}`);
       sendSync();
       broadcast();
@@ -1576,7 +1640,7 @@ app.whenReady().then(() => {
   control = createControlServer({
     getState: remoteState,
     getShow: () => show,
-    onFollowers: (names) => { followers = names; sendSync(); },
+    onFollowers: (names, details) => { followers = names; followerDetails = details || []; sendSync(); },
     onCenters: (names) => { centers = names; if (win && !win.isDestroyed()) win.webContents.send('centers', centers); },
     manage: createManage({ getConfig: () => prefs.center, extensions: presenters.SUPPORTED_EXT, actions: manageActions }),
     actions: {

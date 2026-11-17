@@ -231,8 +231,10 @@ function stop(app) {
   return ps(STOP, env(app), 15000);
 }
 
+// Through the long-running PowerShell: starting a new powershell.exe for every slide change costs about a second.
 function nav(app, dir) {
-  return ps(NAV, env(app, { DC_DIR: dir }), 10000);
+  if (!APPS[app]) return Promise.resolve('');
+  return hostRun(`$env:DC_PROGIDS = '${APPS[app].progIds.join(',')}'\n$progIds = $env:DC_PROGIDS -split ','\n$env:DC_DIR = '${dir === 'next' ? 'next' : 'previous'}'\n${NAV}`, 10000);
 }
 
 function close(app, file) {

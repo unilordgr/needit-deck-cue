@@ -293,6 +293,13 @@ end restoreWindows`;
 const WPS_STOP = `${WPS_HELPERS}
 if not my wpsRunning() then return
 set p to my wpsProc()
+-- No slideshow running (Play is enabled): nothing to stop, and WPS must not be pulled to the front for it.
+-- When the menu cannot be read, carry on as if a show were running: a real show is never left up.
+set showing to true
+try
+	set showing to not (my playEnabled(p))
+end try
+if not showing then return
 if not my focusShow(p) then return
 repeat 3 times
 	tell application "System Events" to key code 53

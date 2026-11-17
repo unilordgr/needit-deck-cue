@@ -871,6 +871,13 @@ function renderSyncBadge() {
   if (st.role === 'main') {
     text = st.followers.length ? `MAIN · backup connected: ${st.followers.join(', ')}` : 'MAIN · no backup connected';
     level = st.followers.length ? 'ok' : 'warn';
+    // A backup can be connected and still not follow: its show differs, or it is holding after this main came back.
+    const trouble = st.followerTrouble || [];
+    if (trouble.length) {
+      const t = trouble[0];
+      text = `MAIN · backup ${t.name} ${t.issue ? 'has a different show' : 'is holding'}${trouble.length > 1 ? ` (+${trouble.length - 1} more)` : ''}`;
+      level = 'warn';
+    }
   } else {
     const link = st.link || {};
     if (link.state === 'connected') { text = `BACKUP · following ${link.host}`; level = 'ok'; }
@@ -881,7 +888,8 @@ function renderSyncBadge() {
     if (st.issue && level === 'ok') { text += ' · shows differ'; level = 'warn'; }
   }
   el.textContent = text;
-  el.title = (st.issue || '') + (st.link && st.link.error ? ` ${st.link.error}` : '');
+  el.title = (st.issue || '') + (st.link && st.link.error ? ` ${st.link.error}` : '')
+    + (st.followerTrouble || []).map((t) => `${t.name}: ${t.issue || 'holding until the next action here (GO, play or Stop)'}`).join('\n');
   el.className = `sync-badge ${level}`;
 }
 
@@ -905,7 +913,8 @@ function renderSync() {
     <label class="toggle"><input type="checkbox" data-sync="mirrorTimer" ${c.mirrorTimer ? 'checked' : ''}><span>Follow speaker timer and stage messages</span></label>
     <div><button class="btn small" id="syncPull">Copy show from main</button> <span class="note" style="margin:0">Use the same show on both computers; files are found by name if their folder differs.</span></div>` : ''}
     ${c.role === 'main' ? `<div class="note" style="margin:0">On the backup computer choose “Backup” and enter this computer's address${remote && remote.addresses.length ? ` (${esc(remote.addresses.join(', '))})` : ''}, port ${remote ? remote.config.httpPort : 9640}. Remote control must allow other computers.</div>` : ''}
-    ${st.issue ? `<div class="status-bad">${esc(st.issue)}</div>` : ''}`;
+    ${st.issue ? `<div class="status-bad">${esc(st.issue)}</div>` : ''}
+    ${(st.followerTrouble || []).map((t) => `<div class="status-bad">Backup ${esc(t.name)}: ${esc(t.issue || 'connected, but holding until the next action on this computer (GO, play or Stop).')}</div>`).join('')}`;
   const pull = $('syncPull');
   if (pull) pull.onclick = async () => {
     const r = await api.syncPull();
@@ -1109,7 +1118,8 @@ const when = (ms) => new Date(ms).toLocaleString([], { day: 'numeric', month: 's
 // Copy one file into the show folder. A different file with the same name is never overwritten without asking.
 let importRule = null; // the answer the operator gave "for the other files too" in one drop
 async function importPath(p, more = 0, justAdded = []) {
-  let r = await api.importFile(p);
+  const copying = `Copying ${baseName(p)} into the show folder…`;
+  let r = await working(copying, () => api.importFile(p));
   if (r.conflict) {
     let mode = importRule;
     if (!mode) {
@@ -1132,7 +1142,7 @@ async function importPath(p, more = 0, justAdded = []) {
       mode = ans.id;
       if (ans.all) importRule = mode;
     }
-    r = await api.importFile(p, mode);
+    r = await working(copying, () => api.importFile(p, mode));
   }
   if (r.error) { flash(r.error, 'error'); return null; }
   return r;
@@ -1146,12 +1156,14 @@ async function addFiles(paths, beforeIndex = show.cues.length) {
   const already = [];
   importRule = null;
   const justAdded = [];
+  let mediaCopied = 0;
   for (let i = 0; i < ok.length; i++) {
     const r = await importPath(ok[i], ok.length - i - 1, justAdded);
     if (!r) continue;
     justAdded.push(baseName(r.path).toLowerCase());
     // A file that a cue already uses was replaced in place: that cue has the new version, no second cue.
     if (r.usedBy && r.usedBy.length) { (r.same ? already : updated).push(...r.usedBy); continue; }
+    if (r.media && r.media.length) mediaCopied += r.media.length;
     cues.push(newCue(r.path));
   }
   importRule = null;
@@ -1164,6 +1176,7 @@ async function addFiles(paths, beforeIndex = show.cues.length) {
   if (rejected) flash(`${rejected} file(s) skipped. Supported: ${env.supportedExt.join(' ')}`, 'warn');
   else if (updated.length) flash(`${cueList(updated).replace(/^c/, 'C')} now ${updated.length === 1 ? 'has' : 'have'} the new version. The old one is in the Trash.`, 'info');
   else if (already.length && !cues.length) flash(`That file is already in the show as ${cueList(already)}.`, 'info');
+  else if (mediaCopied) flash(`${mediaCopied} linked video or sound file${mediaCopied === 1 ? '' : 's'} came along with the presentation.`, 'info');
 }
 
 async function replaceFile(id, p) {
@@ -1178,7 +1191,8 @@ async function replaceFile(id, p) {
     });
     if (ans.id !== 'replace') return;
   }
-  let r = await api.importFile(p);
+  const copying = `Copying ${baseName(p)} into the show folder…`;
+  let r = await working(copying, () => api.importFile(p));
   let note = '';
   if (r.conflict) {
     // A file with that name is in the folder already. If it is this cue's own file, this is its new version.
@@ -1194,7 +1208,7 @@ async function replaceFile(id, p) {
       if (ans.id !== 'replace') return;
     }
     const others = r.usedBy.filter((x) => x !== n);
-    r = await api.importFile(p, own ? 'replace' : 'keep');
+    r = await working(copying, () => api.importFile(p, own ? 'replace' : 'keep'));
     if (!own && !r.error) note = ` ${others.length ? `${cueList(others).replace(/^c/, 'C')} plays a different file with that name` : 'A different file with that name is in the folder'}, so this one was saved as ${baseName(r.path)}.`;
   }
   if (r.error) return flash(r.error, 'error');
@@ -1225,12 +1239,24 @@ function updateSelected(patch) {
 
 let flashTimer = null;
 let localFlash = null; // a message from this window; it must outlive state updates from the main process
-function flash(msg, level) {
-  localFlash = { msg, level, until: Date.now() + 6000 };
+// An error stays until it is clicked away: it must not vanish while the operator looks at the stage.
+// stay = true keeps any other message up too (used while something is being copied; see working()).
+function flash(msg, level, stay) {
+  const keep = stay || level === 'error';
+  localFlash = { msg, level, until: keep ? Infinity : Date.now() + 6000 };
   runtime = { ...runtime, message: msg, messageLevel: level };
   renderStatus();
   clearTimeout(flashTimer);
-  flashTimer = setTimeout(() => { localFlash = null; if (runtime.message === msg) { runtime = { ...runtime, message: null }; renderStatus(); } }, 6000);
+  if (!keep) flashTimer = setTimeout(() => clearFlash(msg), 6000);
+}
+function clearFlash(msg) {
+  if (localFlash && localFlash.msg === msg) localFlash = null;
+  if (runtime.message === msg) { runtime = { ...runtime, message: null }; renderStatus(); }
+}
+// Shows "Copying …" for as long as the work takes (a deck with videos can take a while), then removes it.
+async function working(msg, job) {
+  flash(msg, 'info', true);
+  try { return await job(); } finally { clearFlash(msg); }
 }
 
 // ---------- drag & drop ----------
@@ -1537,6 +1563,7 @@ async function init() {
 
   api.on('state', (s) => {
     runtime = s;
+    if (s.message && localFlash && localFlash.until !== Infinity) localFlash = null; // the app said something newer
     if (!s.message && localFlash && Date.now() < localFlash.until) runtime = { ...s, message: localFlash.msg, messageLevel: localFlash.level };
     renderGrid();
     renderStatus();

@@ -105,6 +105,8 @@ function render() {
   const live = state.live;
   const p = state.presenter || {};
   $('liveName').textContent = live ? live.name : 'Standby';
+  const pill = document.querySelector('.pill');
+  if (pill) pill.hidden = !live; // nothing is live: no red LIVE beside "Standby"
   $('slide').textContent = live && live.slide ? `Slide ${live.slide} of ${live.slides}` : '';
   const m = state.stageMessage || {};
   $('message').hidden = !m.text;

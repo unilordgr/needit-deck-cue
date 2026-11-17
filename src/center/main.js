@@ -264,7 +264,8 @@ function upsert(info, address, manual = false) {
 }
 
 async function addByAddress(text) {
-  const m = /^\s*([^\s:/]+)(?::(\d+))?\s*$/.exec(String(text || '').replace(/^https?:\/\//, ''));
+  // Accepts 192.168.1.20, 192.168.1.20:9640 and a pasted http://192.168.1.20:9640/
+  const m = /^\s*([^\s:/]+)(?::(\d+))?\s*$/.exec(String(text || '').trim().replace(/^https?:\/\//, '').replace(/\/.*$/, ''));
   if (!m) return { ok: false, error: 'Type an address like 192.168.1.20' };
   const target = { address: m[1], port: Number(m[2]) || 9640 };
   const info = await request(target, 'GET', '/api/info', undefined, 4000);

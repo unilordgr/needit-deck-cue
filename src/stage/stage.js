@@ -134,6 +134,8 @@ function imageExists(url) {
 function render() {
   const live = state.live;
   $('liveName').textContent = live ? `${live.number} · ${live.name}` : 'Standby';
+  const pill = document.querySelector('.pill.live');
+  if (pill) pill.hidden = !live; // nothing is live: no red LIVE beside "Standby"
   $('slide').textContent = live && live.slide ? `${live.slide} / ${live.slides}` : '';
   $('notes').textContent = live ? live.notes : '';
   const m = state.stageMessage || {};

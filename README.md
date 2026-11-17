@@ -175,7 +175,7 @@ Deck Cue detects which apps are installed (⚙︎ Settings › System lists them
 **PDF player**
 - Each page is shown fitted to the screen on black, on the cue's output. If the output is *Let the app choose*, it uses the first external display, or the main display if there's none.
 - **Start slide** sets the first page.
-- While a PDF is live, Deck Cue takes the clicker keys (→ ← ↑ ↓ Page Up / Page Down) from any app, so a presentation clicker works even when another window has focus. When the PDF ends, those keys go back to normal.
+- While a PDF is live, Deck Cue takes the clicker keys (→ ← ↑ ↓ Page Up / Page Down) from any app, so a presentation clicker works even when another window has focus. When the PDF ends, those keys go back to normal. While Deck Cue's own window is in front, only Page Up / Page Down are taken: there the arrows keep working in the cue list and in the text boxes (← → still change the page).
 - In the player window you can also click for the next page, right-click for the previous one, type a number and press Return to jump, use Home / End, or press Esc to stop.
 - With the cue's *Fullscreen* set to *Just open*, the PDF opens in your default PDF app instead.
 
@@ -213,7 +213,7 @@ The speaker timer can also be shown on the output itself, in three ways. Set it 
 **Behaviour**
 - The timer turns amber for the last two minutes and red with "+MM:SS" when over time.
 - Blackout covers the timer too.
-- Remote: `POST /api/timerscreen[?state=on|off]`, OSC `/deckcue/timerscreen [0|1]`, or the Companion *Timer: full screen on the output* action. A backup machine follows the Full screen button.
+- Remote: `POST /api/timerscreen[?state=on|off][&content=timer|clock]`, OSC `/deckcue/timerscreen [0|1]`, or the Companion *Timer: full screen on the output* action. Without `state` it toggles: it hides whatever is up (a clock too), or shows the timer. A backup machine follows the Full screen button.
 
 Tested on macOS over a fullscreen WPS slideshow and the PDF player. Not yet tried over PowerPoint or Keynote, or on Windows.
 
@@ -224,12 +224,15 @@ Presentations you drop into Deck Cue are **copied into the show folder** on that
 - Dropping a file whose **name is already in the folder** asks what it is: **Replace** (the new version of that presentation; the old one goes to the Trash) or **Keep both** (a different presentation with the same name; it is saved as `Name (2)`). The question shows both dates and warns when the file you added is the older one. Capitals do not matter.
 - A file is never written over another cue's file. Dropped on cue 1, a `Presentation.pptx` that is a different deck from cue 7's `Presentation.pptx` is saved under its own name.
 - Dropping the very same file again does nothing.
+- **Videos and sounds that a PowerPoint file links to** (instead of containing them) are copied along when they sit beside the presentation or in a folder beside it, so the copy plays them too. Links to a fixed place on the disk, or to the internet, are left as they are; Preflight lists the ones that cannot be found.
+- While a large file is being copied, the status line says *Copying …*.
+- A show that was made on another computer finds its presentations in this computer's show folder by their names.
 - Settings › Playing presentations has the switch (*Copy presentations into this computer's show folder*) and the folder. With the switch off, cues play files from where they are.
 
 ## Versions of files
 
 Speakers change their decks until the last minute. Deck Cue watches every cue's file. This works on network shares and USB drives too.
-- **UPDATED** (blue): the file changed on disk. If that cue is live, you're told that the running show still has the old version; fire the cue again to load the new one.
+- **UPDATED** (blue): the file changed on disk. If that cue is live, you're told that the running show still has the old version; fire the cue again to load the new one (Deck Cue closes the old version first, so the app really opens the new file).
 - **NEW VERSION** (amber): a newer file with the same name in the same folder. Version markers are recognised: `_v7` → `_v8`, `FINAL` → `FINAL 2`, `rev4` → `rev5`, `(3)`, `copy`. A bare number is not a version: "Day 2" and "Day 3", or `Session_1` and `Session_2`, stay separate decks. A file that another cue plays is never offered as a newer version. The cue editor offers **Use it** or **Ignore**.
 - **Settings › Newer version of a file in its folder** chooses *Show it and ask* (default), *Switch to it automatically* or *Ignore*.
 
@@ -308,7 +311,7 @@ Checks run when you add or change cues, when screens are connected, and each tim
 |---|---|
 | File | missing, password-protected, no slides, start slide beyond the last slide, hidden slides, very large files, old `.ppt` format |
 | Fonts | every font the deck uses, including theme fonts. Fonts embedded in the deck count as present; so do fonts installed on the computer or bundled with PowerPoint/WPS |
-| Screen | slide shape (4:3, 16:9…) against the cue's output screen ("4:3 slides on a 16:9 output: black bars at the sides"), and output screens that aren't connected |
+| Screen | slide shape (4:3, 16:9…) against the cue's output screen ("4:3 slides on a 16:9 output: black bars at the sides"), and output screens that aren't connected. While only the computer's own screen is connected the shape is a note, not a warning |
 | Video and audio | linked media that can't be found, media streamed from the internet, formats a Mac can't play (WMV, AVI…), and a reminder to rehearse video in WPS |
 | Computer | presentation app not installed; WPS without Accessibility permission (Mac) |
 
@@ -339,7 +342,7 @@ If the main fails, cut the switcher to the backup and keep going from the backup
 - If the two shows don't line up, the backup says which cues differ.
 
 **Status bar**
-- On the main: *MAIN · backup connected: <name>*.
+- On the main: *MAIN · backup connected: <name>*. It turns amber and says so when a connected backup is not really following: its show is different, or it is holding (see Fail-safe).
 - On the backup: *BACKUP · following <main>*, or a flashing **MAIN LOST** warning.
 
 **Fail-safe:** after losing the main, the backup **holds**. A restarted main with nothing live will not stop the backup's show. Following resumes at the main's next deliberate action (a cue, a slide, stop).
@@ -404,7 +407,7 @@ To install it:
 | `GET /api/info`, `PUT /api/files/<name>`, `POST /api/cues`, `/api/cue/<ref>/file`, `/update`, `/move?to=N`, `/delete` | Command Center: identify, receive files, manage cues (only when the computer accepts a Command Center; optional header `X-DeckCue-Key`) |
 | `POST /api/message?text=…&flash=1`, `/api/message/clear` | Stage message |
 | `POST /api/showmode[?state=on\|off]` | Show-machine mode (toggle without state) |
-| `POST /api/timerscreen[?state=on\|off]` | Full-screen timer on the output (toggle without state) |
+| `POST /api/timerscreen[?state=on\|off][&content=timer\|clock]` | Full-screen timer (or clock) on the output. Without state it toggles: hides what is up, or shows the timer |
 | `POST /api/presenter/mute[?state=on\|off]` | Pause / allow the presenter remote |
 | `POST /api/presenter/next`, `/prev`, `/check` + header `X-Presenter-Pin` | Presenter remote (PIN) |
 | `GET /api/cue/<ref>/thumb` | First-slide thumbnail |
@@ -504,7 +507,7 @@ PowerPoint has no scriptable setting for the slideshow display, so Deck Cue uses
 A black window covers the output display (the default output, or every non-main display). It sits above the slideshow. Press B or the button again to remove it.
 
 ### Show files
-⌘S / ⌘O save and open `.deckcue` files. Work is autosaved. If a file has moved, Deck Cue looks for it next to the show file, so you can copy a show folder to another machine.
+⌘S / ⌘O save and open `.deckcue` files. Work is autosaved, so quitting never asks to save: the show comes back as it was the next time Deck Cue opens. If a file has moved, Deck Cue looks for it next to the show file and then in this computer's show folder, so you can copy a show folder to another machine.
 
 ## First run on the show machine
 1. Fire a cue. macOS asks to let Deck Cue control your presentation app (and System Events). Click **OK**.

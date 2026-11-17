@@ -48,8 +48,10 @@ for (const [name, body] of Object.entries(_test.scripts)) {
     const again = await _test.hostRun("1 + 1");
     // "Is the deck still open?" with no PowerPoint running must say gone, not fail.
     const alive = await _test.hostRun(`$env:DC_PROGIDS = 'PowerPoint.Application'\n$progIds = $env:DC_PROGIDS -split ','\n$env:DC_FILE = 'C:\\nowhere\\it''s gone.pptx'\n${_test.scripts.ALIVE}`);
-    if (echo !== 'hello' || again !== '2' || alive !== 'gone') throw new Error(`unexpected output ${JSON.stringify([echo, pos, again, alive])}`);
-    console.log(`host ok     echo, POSITION -> ${JSON.stringify(pos)}, ALIVE -> ${alive}, reuse`);
+    // Next / previous slide goes through the same PowerShell. With nothing showing it must answer, not fail.
+    const nav = await _test.hostRun(`$env:DC_PROGIDS = 'PowerPoint.Application'\n$progIds = $env:DC_PROGIDS -split ','\n$env:DC_DIR = 'next'\n${_test.scripts.NAV}`);
+    if (echo !== 'hello' || again !== '2' || alive !== 'gone' || nav !== 'no show') throw new Error(`unexpected output ${JSON.stringify([echo, pos, again, alive, nav])}`);
+    console.log(`host ok     echo, POSITION -> ${JSON.stringify(pos)}, ALIVE -> ${alive}, NAV -> ${nav}, reuse`);
   } catch (e) {
     failed = true;
     console.log(`HOST FAIL   ${e.message}`);

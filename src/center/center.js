@@ -364,9 +364,8 @@ function cardHtml(n) {
         <button class="btn stop" data-act="stop">Stop</button>
       </div>
     </div>
-    <ol class="cues">${cues}</ol>
+    <ol class="cues">${cues}${manage ? '<li class="drop">Drop presentations here, <button data-act="pick">or choose files</button></li>' : ''}</ol>
     <div class="sending" data-sending>${sendingHtml(n.id)}</div>
-    ${manage ? '<div class="drop">Drop presentations here, <button data-act="pick">or choose files</button></div>' : ''}
     <details class="more"${n.moreOpen ? ' open' : ''}>
       <summary>More for this computer</summary>
       <div class="line"><span>Between presentations, show</span>
