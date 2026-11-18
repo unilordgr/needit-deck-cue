@@ -67,8 +67,8 @@
         <div class="rail-title">Message to stage</div>
         <input id="stageMsg" class="stage-msg" placeholder="Type and press Return" maxlength="280">
         <div class="msg-controls">
-          <label class="toggle" title="Flash the message on the stage display"><input type="checkbox" id="stageFlash"><span>Flash</span></label>
-          <button id="stageClear" class="btn ghost" title="Clear the stage message">Clear</button>
+          <label class="toggle" title="Blink to get the speaker's attention: the message, or the timer when there is no message. On the stage display, the phone remote and the timer on the output. It blinks until you switch it off."><input type="checkbox" id="stageFlash"><span>Flash</span></label>
+          <button id="stageClear" class="btn ghost" title="Take the message away and stop the blinking">Clear</button>
         </div>
       </section>
 
@@ -310,6 +310,12 @@
         </div></div>
       <label class="row wide"><span>Title above it</span><input id="tsTitle" placeholder="For example: Starting in" maxlength="60"></label>
       <label class="toggle"><input type="checkbox" id="tsClock"><span>Show the current time under the full-screen timer</span></label>
+      <label class="row wide" title="A message to stage and Flash are for the speaker. Choose whether this screen shows them too: it may be the one the audience sees."><span>Messages to stage and Flash</span>
+        <select id="tsMessages">
+          <option value="off">Never on this screen</option>
+          <option value="full">With the full-screen timer or clock</option>
+          <option value="always">Always, also on top of the slides</option>
+        </select></label>
       <div id="tsNote" class="status-bad" hidden></div>
 
       <h3>Corner overlay <small>sits on top of the slideshow</small></h3>

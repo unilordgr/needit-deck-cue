@@ -13,7 +13,8 @@
 //   POST /api/cue/<ref>/delete
 //   POST /api/cues/clear                   empty the list (refused while something is live)
 //   GET  /api/cue/<ref>/download           the cue's file, to copy this list to another computer
-//   POST /api/timerscreen/config           { idle, livePip, title, showClock, pip: { x, y, h, bg, content } }
+//   POST /api/timerscreen/config           { idle, livePip, title, showClock, pip: { x, y, h, bg, content },
+//                                            messages: 'off' | 'full' | 'always' (stage messages and Flash on it) }
 //   PUT  /api/card/<name>                  body = an image; it becomes this computer's event card
 //   POST /api/card/clear                   take the event card away
 //   GET  /api/card                         the event card's image, to copy a show to another computer

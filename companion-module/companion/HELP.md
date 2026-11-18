@@ -20,6 +20,7 @@ Controls [needit Deck Cue](https://github.com/unilordgr/needit-deck-cue), a cue 
 - **Timer: start a saved timer** (by its position) and **Timer: count down to a time of day**.
 - **Timer: full screen on the output**: show, hide or toggle the full-screen timer on the audience screen.
 - **Stage message: show / clear**: text on the stage display, optionally flashing. Variables are allowed.
+- **Flash** (on / off / toggle): blink the stage message, or the timer when there is no message. Needs Deck Cue 0.7.5 or newer.
 
 ### Feedbacks
 - **Cue is live** (red), **Cue is next** (yellow), **Cue is loading**, **Cue file missing**.
@@ -28,7 +29,7 @@ Controls [needit Deck Cue](https://github.com/unilordgr/needit-deck-cue), a cue 
 - **Show mode is on**, **Presenter remote is paused**.
 - **Cue file changed on disk**, **Newer version of the cue file available**.
 - **Cue has preflight problems** (error, or anything to check) and **Show has preflight problems**.
-- **Timer is running**, **Timer is nearly done** (amber, threshold in seconds), **Timer is over time** (red), **Stage message is showing**.
+- **Timer is running**, **Timer is nearly done** (amber, threshold in seconds), **Timer is over time** (red), **Stage message is showing**, **Flash is on**.
 - **Cue colour**: the colour set on the cue in Deck Cue.
 
 ### Variables
@@ -42,4 +43,4 @@ Controls [needit Deck Cue](https://github.com/unilordgr/needit-deck-cue), a cue 
 - **Transport**: GO (shows the next cue), Stop, Blackout, slide buttons, live and next displays.
 - **Cues**: one button per cue, coloured, turning yellow when next and red when live.
 - **Timer**: live countdown button (start/pause; amber near the end, red when over), reset, set 5–30 min, ±1 min.
-- **Stage messages**: WRAP UP, 5 MIN, 1 MIN, LOUDER, CHECK MIC, clear.
+- **Stage messages**: WRAP UP, 5 MIN, 1 MIN, LOUDER, CHECK MIC, clear, Flash.

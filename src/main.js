@@ -70,7 +70,9 @@ const state = {
   liveCueId: null, live: null, armedCueId: null, busyCueId: null, blackout: false, message: null, messageLevel: null,
   // Speaker countdown: while running, endsAt is the wall-clock end; while paused, remaining holds the time left.
   timer: { duration: 0, remaining: 0, endsAt: null, running: false },
-  stageMessage: { text: '', flash: false }, // shown on the stage display
+  // For the speaker: shown on the stage display, the phone remote and the full-screen timer on the output.
+  // flash blinks the message, or the timer itself while there is no message.
+  stageMessage: { text: '', flash: false },
   preflight: {}, // cueId -> { level: ok|info|warn|error, items: [{ level, text }] }
   showMode: false, // show-machine mode (no sleep, notifications quiet)
   presenterMuted: false, // operator paused the presenter phone remote
@@ -107,6 +109,9 @@ function defaultShow() {
         display: 'output',            // 'output' = follow the show's output, or a display ref
         title: '',                    // line above the full-screen figure, e.g. "Starting in"
         showClock: false,             // time of day under the full-screen timer
+        // Messages to stage and Flash on this screen: 'off' | 'full' (with the full-screen timer or clock) |
+        // 'always' (also on top of the slides and the card). It may face the audience, so the show decides.
+        messages: 'full',
         // Overlay layout: centre (x, y) and height h as fractions of the screen.
         pip: { x: 0.9, y: 0.1, h: 0.12, bg: 'solid', label: '', content: 'timer' },
       },
@@ -189,7 +194,7 @@ function restoreRuntime() {
   if (t && Number.isFinite(t.duration) && !(t.running && t.endsAt && t.endsAt < Date.now() - 2 * 3600 * 1000)) {
     state.timer = { duration: t.duration || 0, remaining: Number.isFinite(t.remaining) ? t.remaining : 0, endsAt: t.running ? t.endsAt : null, running: !!t.running && !!t.endsAt };
   }
-  if (r.stageMessage && typeof r.stageMessage.text === 'string') state.stageMessage = { text: r.stageMessage.text, flash: !!r.stageMessage.flash };
+  if (r.stageMessage && typeof r.stageMessage.text === 'string') state.stageMessage = { text: r.stageMessage.text, flash: !!r.stageMessage.flash && !!r.stageMessage.text }; // a blink by itself does not come back
   state.presenterMuted = !!r.presenterMuted;
 }
 
@@ -625,6 +630,14 @@ function updateTimerScreen() {
     mode = 'pip';
   }
   if (mode === 'off' && rt.preview) mode = 'pip';
+  // What the operator sends to the speaker: a message, a blink. How far this screen takes part is the show's choice.
+  const share = messageShare();
+  const speaker = share === 'always' || (share === 'full' && mode === 'full' && content !== 'card');
+  const message = speaker ? state.stageMessage.text : '';
+  const flash = speaker && !!state.stageMessage.flash;
+  // With nothing of its own to show, the window still comes up to carry the message over the slides. Not over
+  // the operator's own screen while nothing plays: there it would only sit on top of Deck Cue.
+  const carry = mode === 'off' && (message || flash) && (!!state.live || !coversOperator || !!process.env.DECKCUE_TEST_COVER);
   const label = listDisplays().find((x) => x.id === d.id);
   state.timerScreen = {
     ...rt, mode, content, note,
@@ -632,8 +645,8 @@ function updateTimerScreen() {
   };
   timerScreen.update({
     // Only the Full screen button can cover the operator's own screen; a click on the timer then hides it.
-    mode, display: d, clickToClose: mode === 'full' && coversOperator && rt.forced,
-    payload: { content, timer: state.timer, config: ts, card: card ? cardUrl(card) : '' },
+    mode: carry ? 'pip' : mode, display: d, clickToClose: mode === 'full' && coversOperator && rt.forced,
+    payload: { content, timer: state.timer, config: ts, card: card ? cardUrl(card) : '', message, flash, corner: mode === 'pip' },
   }).catch((e) => console.error('timer screen', e));
 }
 
@@ -641,6 +654,8 @@ function updateTimerScreen() {
 // time, or shown by itself whenever no presentation is playing. Its file lives in the show folder.
 const CARD_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'];
 const CONTENTS = ['timer', 'clock', 'card'];
+const MESSAGE_SHARES = ['off', 'full', 'always'];
+const messageShare = () => (MESSAGE_SHARES.includes(show.settings.timerScreen.messages) ? show.settings.timerScreen.messages : 'full');
 function cardFile() {
   const c = show.settings.timerScreen.card;
   if (!c) return null;
@@ -1020,6 +1035,7 @@ const manageActions = {
       if (['timer', 'clock'].includes(patch.pip.content)) ts.pip.content = patch.pip.content;
     }
     if ('showClock' in patch) ts.showClock = !!patch.showClock;
+    if (MESSAGE_SHARES.includes(patch.messages)) ts.messages = patch.messages;
     if ('title' in patch) ts.title = String(patch.title || '').slice(0, 60);
     showChanged();
     return {};
@@ -1087,7 +1103,12 @@ function timerCommand(cmd, seconds) {
 }
 
 function setStageMessage(text, flash = false) {
-  state.stageMessage = { text: String(text || '').slice(0, 280), flash: !!flash && !!text };
+  state.stageMessage = { text: String(text || '').slice(0, 280), flash: !!flash };
+  broadcast();
+}
+// Flash by itself: the message keeps showing and starts or stops blinking; with no message the timer blinks.
+function setStageFlash(on) {
+  state.stageMessage = { text: state.stageMessage.text, flash: on === undefined ? !state.stageMessage.flash : !!on };
   broadcast();
 }
 
@@ -1479,6 +1500,7 @@ function remoteState() {
     timerScreen: {
       mode: state.timerScreen.mode, content: state.timerScreen.content, forced: !!state.timerScreen.forced,
       idle: show.settings.timerScreen.idle, livePip: !!show.settings.timerScreen.livePip,
+      messages: messageShare(),
       card: cardFile() ? path.basename(cardFile()) : '',
       note: state.timerScreen.note || null,
       pip: { x: show.settings.timerScreen.pip.x, y: show.settings.timerScreen.pip.y, h: show.settings.timerScreen.pip.h },
@@ -1638,6 +1660,7 @@ function setupIpc() {
   ipcMain.handle('showmode:openShortcuts', () => shell.openPath('/System/Applications/Shortcuts.app'));
   ipcMain.handle('timer:cmd', (_e, cmd, seconds) => { try { timerCommand(cmd, seconds); } catch (e) { setMessage(`Timer: ${e.message}`, 'warn'); } });
   ipcMain.handle('stage:message', (_e, text, flash) => setStageMessage(text, flash));
+  ipcMain.handle('stage:flash', (_e, on) => setStageFlash(on));
   ipcMain.handle('stage:open', (_e, view) => shell.openExternal(`http://127.0.0.1:${prefs.control.httpPort}/stage${view === 'timer' ? '?view=timer' : ''}`));
   ipcMain.handle('files:status', (_e, paths) => Object.fromEntries(paths.map((p) => [p, fs.existsSync(p)])));
   ipcMain.handle('files:resolve', () => { show.cues.forEach((c) => resolveCueFile(c)); return show; });
@@ -1799,6 +1822,7 @@ app.whenReady().then(() => {
       armStep,
       timer: timerCommand,
       stageMessage: setStageMessage,
+      stageFlash: setStageFlash,
       showMode: (on) => setShowMode(on),
       presenter: presenterAction,
       presenterMute: (on) => setPresenterMuted(on),

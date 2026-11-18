@@ -144,6 +144,7 @@ function render() {
   box.textContent = m.text || '';
   box.classList.toggle('flash', !!m.flash);
   document.body.classList.toggle('has-message', !!m.text);
+  document.body.classList.toggle('flash-timer', !!m.flash && !m.text);
   tick();
   if (!document.body.classList.contains('timer-only')) renderPreviews();
 }

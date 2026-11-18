@@ -8,6 +8,7 @@ let offset = 0;
 let pdfjs = null;
 let pdf = { url: null, doc: null };
 let renderedKey = '';
+let flashTimer = false;
 
 async function api(path) {
   const r = await fetch(path, { method: 'POST', headers: { 'X-Presenter-Pin': pin } });
@@ -57,7 +58,7 @@ function tick() {
   const left = t.running ? t.endsAt - (Date.now() + offset) : t.remaining;
   const el = $('timer');
   el.textContent = idle ? '--:--' : fmt(left);
-  el.className = `timer${idle ? ' idle' : left < 0 ? ' over' : left <= 120000 ? ' warn' : ''}`;
+  el.className = `timer${idle ? ' idle' : left < 0 ? ' over' : left <= 120000 ? ' warn' : ''}${flashTimer ? ' flash' : ''}`;
 }
 
 async function renderPreview() {
@@ -112,6 +113,7 @@ function render() {
   $('message').hidden = !m.text;
   $('message').textContent = m.text || '';
   $('message').classList.toggle('flash', !!m.flash);
+  flashTimer = !!m.flash && !m.text; // Flash with no message: the timer blinks
   const blocked = !p.enabled ? 'Presenter remote is off.' : p.muted ? 'Paused by the operator.' : live && live.presenterAllowed === false ? 'The operator controls this part.' : !live ? 'Waiting for your presentation…' : '';
   $('notice').hidden = !blocked;
   $('notice').textContent = blocked;

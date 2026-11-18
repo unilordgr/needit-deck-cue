@@ -274,6 +274,23 @@ class DeckCueInstance extends InstanceBase {
 				},
 			},
 			message_clear: { name: 'Stage message: clear', options: [], callback: () => this.post('/api/message/clear') },
+			message_flash: {
+				name: 'Flash: blink the stage message, or the timer when there is no message',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'mode',
+						label: 'Mode',
+						default: 'toggle',
+						choices: [
+							{ id: 'toggle', label: 'Toggle' },
+							{ id: 'on', label: 'On' },
+							{ id: 'off', label: 'Off' },
+						],
+					},
+				],
+				callback: (a) => this.post(a.options.mode === 'toggle' ? '/api/flash' : `/api/flash?state=${a.options.mode}`),
+			},
 			timer_screen: {
 				name: 'Timer: full screen on the output',
 				options: [
@@ -450,6 +467,13 @@ class DeckCueInstance extends InstanceBase {
 				options: [],
 				callback: () => !!(this.state && this.state.stageMessage && this.state.stageMessage.text),
 			},
+			flash_on: {
+				type: 'boolean',
+				name: 'Flash is on',
+				defaultStyle: { bgcolor: RED, color: WHITE },
+				options: [],
+				callback: () => !!(this.state && this.state.stageMessage && this.state.stageMessage.flash),
+			},
 			cue_preflight: {
 				type: 'boolean',
 				name: 'Cue has preflight problems',
@@ -589,6 +613,9 @@ class DeckCueInstance extends InstanceBase {
 			])
 		}
 		presets.msg_clear = button('Stage messages', 'Clear message', 'CLEAR\\nMSG', 'message_clear', {}, { bgcolor: DARK_RED })
+		presets.msg_flash = button('Stage messages', 'Flash', 'FLASH', 'message_flash', { mode: 'toggle' }, {}, [
+			{ feedbackId: 'flash_on', options: {}, style: { bgcolor: RED, color: WHITE } },
+		])
 
 		for (const c of cues) {
 			const options = { cue: String(c.number) }

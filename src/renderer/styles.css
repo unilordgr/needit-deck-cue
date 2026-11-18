@@ -288,6 +288,10 @@ body.locked .add-tile { display: none; }
 .rail-note.warn { color: #ffd66b; }
 .msg-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .msg-controls .toggle { white-space: nowrap; }
+/* Flash is on: the switch is red and its word blinks, so it is not left on by accident. */
+.msg-controls .toggle.flashing input[type=checkbox] { background: var(--live); }
+.msg-controls .toggle.flashing span { color: var(--live); font-weight: 700; animation: flashword .9s step-end infinite; }
+@keyframes flashword { 50% { opacity: .35; } }
 .msg-controls .btn { padding: 7px 12px; }
 .stage-msg.sent { border-color: var(--armed); background: var(--armed-deep); }
 

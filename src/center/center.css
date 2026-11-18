@@ -128,6 +128,12 @@ body.mac .topbar { padding-left: 88px; }
 .presets-list { display: grid; gap: 8px; }
 .preset-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px auto auto; gap: 10px; align-items: center; }
 .preset-row span { color: var(--muted); }
+/* Message to the speaker, and Flash. */
+.pc-say { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; align-items: center; }
+.pc-say input.say { padding: 7px 10px; font-size: 16px; }
+.pc-say input.say.sent { border-color: var(--armed); background: var(--armed-deep); }
+.btn.flash.on { background: var(--live); border-color: var(--live); color: #fff; animation: flashbtn .9s step-end infinite; }
+@keyframes flashbtn { 50% { background: var(--live-deep); } }
 .pc-go { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 8px; }
 .pc-go .btn { padding: 12px 6px; }
 .pc-go .btn.go { font: 800 26px/1 var(--num); letter-spacing: .03em; }

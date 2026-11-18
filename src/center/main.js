@@ -408,7 +408,7 @@ async function copyShow(sourceId, targetIds) {
         const up = await upload(t, cardLocal, () => {}, null, '/api/card/');
         if (!up.ok) errors.push(`${t.name}: the event card was not copied (${up.error}).`);
       }
-      if (st.timerScreen) await request(t, 'POST', '/api/timerscreen/config', { idle: st.timerScreen.idle, livePip: st.timerScreen.livePip, title: st.timerScreen.title, showClock: st.timerScreen.showClock, pip: st.timerScreen.pip });
+      if (st.timerScreen) await request(t, 'POST', '/api/timerscreen/config', { idle: st.timerScreen.idle, livePip: st.timerScreen.livePip, title: st.timerScreen.title, showClock: st.timerScreen.showClock, messages: st.timerScreen.messages, pip: st.timerScreen.pip });
       // The same cue is next on both.
       const next = src.state && src.state.next;
       if (next && next.number) await request(t, 'POST', `/api/cue/${next.number}/arm`);

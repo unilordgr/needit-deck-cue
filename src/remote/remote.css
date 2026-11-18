@@ -22,7 +22,8 @@ button { font: inherit; border: 0; cursor: pointer; touch-action: manipulation; 
 .slide { text-align: center; color: #8b93a1; font-variant-numeric: tabular-nums; min-height: 1.2em; }
 .notice { text-align: center; padding: 10px; border-radius: 10px; background: #3a2f0b; color: #ffd66b; font-weight: 700; }
 .message { text-align: center; padding: 12px; border-radius: 10px; background: #fff; color: #000; font-weight: 800; font-size: 22px; }
-.message.flash { animation: flash .9s steps(2, start) infinite; }
+.message.flash { animation: flash .9s step-end infinite; }
+.timer.flash { animation: flash .9s step-end infinite; border-radius: 8px; padding: 0 8px; }
 .buttons { display: grid; grid-template-columns: 1fr 2.2fr; gap: 10px; height: 34vh; min-height: 140px; }
 .nav { border-radius: 16px; font-size: 30px; font-weight: 800; color: #fff; background: #1d222b; }
 .nav.next { background: #19c26b; color: #04210f; }

@@ -9,6 +9,8 @@
 //        POST /api/timer/start | pause | reset, /api/timer/set?seconds=N, /api/timer/add?seconds=N,
 //             /api/timer/preset?n=<position> (set and start a saved timer), /api/timer/until?time=HH:MM
 //        POST /api/message?text=...&flash=1, /api/message/clear
+//        POST /api/flash[?state=on|off]        blink the stage message, or the timer when there is no message
+//                                              (toggle without state)
 //        POST /api/showmode[?state=on|off]     show-machine mode (toggle without state)
 //        POST /api/timerscreen[?state=on|off]  full-screen timer on the output (toggle without state)
 //        GET  /api/cue/<ref>/file             the cue's PDF (for stage display previews)
@@ -25,7 +27,7 @@
 // OSC    /deckcue/go, /stop, /next, /prev, /blackout [0|1], /cue/fire <n|id>, /cue/arm <n|id>,
 //        /cue/<n>/fire, /cue/<n>/arm, /arm/next, /arm/prev, /state (replies to the sender),
 //        /timer/start, /timer/pause, /timer/reset, /timer/set <seconds>, /timer/add <seconds>,
-//        /message <text> [flash 0|1], /message/clear
+//        /message <text> [flash 0|1], /message/clear, /flash [0|1]
 //        Feedback to the configured host:port and to /state requesters:
 //        /deckcue/live/number i, /live/name s, /next/number i, /next/name s, /blackout i,
 //        /slide i i, /cue/<n>/state s ("live" | "next" | "loading" | "missing" | "idle")
@@ -84,6 +86,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
       case 'arm-prev': return actions.armStep(-1);
       case 'timer': return actions.timer(arg.cmd, arg.seconds);
       case 'message': return actions.stageMessage(arg.text, arg.flash);
+      case 'flash': return actions.stageFlash(arg);
       case 'showmode': return actions.showMode(arg);
       case 'timerscreen': return actions.timerScreen(arg.on, arg.content);
       case 'presenter-mute': return actions.presenterMute(arg);
@@ -121,6 +124,10 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     }
     if (a === 'message' && !b) return { action: 'message', arg: { text: query.get('text') || '', flash: ['1', 'true', 'on'].includes(query.get('flash')) } };
     if (a === 'message' && b === 'clear' && !c) return { action: 'message', arg: { text: '', flash: false } };
+    if (a === 'flash' && !b) {
+      const st = query.get('state');
+      return { action: 'flash', arg: st === 'on' ? true : st === 'off' ? false : undefined };
+    }
     if (a === 'presenter' && ['check', 'next', 'prev'].includes(b) && !c) return { presenter: b };
     if (a === 'presenter' && b === 'mute' && !c) {
       const st = query.get('state');
@@ -220,6 +227,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
         else if (parts[0] === 'timer' && ['start', 'pause', 'reset', 'set', 'add'].includes(parts[1]) && parts.length === 2) run('timer', { cmd: parts[1], seconds: args[0] });
         else if (parts[0] === 'message' && parts.length === 1) run('message', { text: args.length ? String(args[0]) : '', flash: args.length > 1 && Boolean(args[1]) });
         else if (parts[0] === 'message' && parts[1] === 'clear' && parts.length === 2) run('message', { text: '', flash: false });
+        else if (parts[0] === 'flash' && parts.length === 1) run('flash', args.length ? Boolean(args[0]) : undefined);
         else if (parts[0] === 'showmode' && parts.length === 1) run('showmode', args.length ? Boolean(args[0]) : undefined);
         else if (parts[0] === 'timerscreen' && parts.length === 1) run('timerscreen', { on: args.length ? Boolean(args[0]) : undefined, content: args.length && args[0] ? 'timer' : undefined });
       } catch { /* ignore bad OSC input */ }

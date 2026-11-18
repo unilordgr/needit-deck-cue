@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('api', {
   syncSet: invoke('sync:set'),
   syncPull: invoke('sync:pull'),
   stageMessage: invoke('stage:message'),
+  stageFlash: invoke('stage:flash'),
   openStage: invoke('stage:open'),
   controlSet: invoke('control:set'),
   requestAccessibility: invoke('env:requestAccessibility'),

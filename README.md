@@ -133,6 +133,7 @@ Connect all the computers to the same network (a simple switch is enough). The C
 - **Choose what the screen shows:** Slides, a full-screen **Timer**, the **Clock**, or the **Card** (the event card: an image such as the event's logo slide; the first click asks for the image and sends it). Under *More*: what to show between presentations (nothing, the timer, the time or the event card), the event card's image, a small timer on top of the slides with **where it sits** (nine places) **and how big it is** (S, M, L), and Blackout.
 - **Choose the screen the slideshows go to** on each computer (*More › Slideshows go to*). The list shows that computer's own screens. Two laptops for one talk: link them, send both the same presentation, and choose a different screen on each. For speaker notes, choose the laptop's *own* screen on the notes laptop: the presentation app then puts its presenter view (notes) on the other screen, if presenter view is switched on in that app. (That part is the presentation app's doing and has not been tried by us yet. WPS Office on Windows and Keynote choose their screen themselves.)
 - **Run the timer:** saved timers with one click, Start/Pause, −1 and +1 minute while it runs, another time, or `@15:30` to count down to a time of day.
+- **Talk to the speaker:** type a **message** on a computer's card and press Return, press **Flash** to make it blink (or to blink the timer when there is no message), **Clear** to take both away. Linked computers get the same. Under *More › Messages and Flash on the screen* you choose whether that computer's screen shows them too (see *Messages and Flash on the output* below).
 
 **Changing a presentation during the event**
 - Press the **pencil** on a cue. The Command Center fetches that presentation from the show computer and opens it in the presentation app of *your* computer. Change it and save it as usual. The cue then says *Saved here at 14:32. Not on the show computers yet.* Press **Send the new version** and it goes to that computer and to the linked ones (the old version goes to their Trash). Nothing is sent by itself, because apps also save on their own half-way through a change.
@@ -221,6 +222,11 @@ The speaker timer can also be shown on the output itself, in three ways. Set it 
 - The timer turns amber for the last two minutes and red with "+MM:SS" when over time.
 - Blackout covers the timer too.
 - Remote: `POST /api/timerscreen[?state=on|off][&content=timer|clock|card]`, OSC `/deckcue/timerscreen [0|1]`, or the Companion *Timer: full screen on the output* action. Without `state` it toggles: it hides whatever is up (a clock too), or shows the timer. A backup machine follows the Full screen and Event card buttons.
+
+**Messages and Flash on the output.** A message to stage and **Flash** are meant for the speaker, and the output may be the screen the audience sees. So the show chooses, under **On screen… › Messages to stage and Flash**:
+- *With the full-screen timer or clock* (the default): while the output shows the timer or the time full screen, the message is a band across the top of it, and Flash blinks the message, or the whole timer when there is no message. Nothing is shown over a slideshow or over the event card.
+- *Always, also on top of the slides*: the message is also a band across the top of a running slideshow and of the event card. Flash with no message blinks the corner timer, or a red frame around the screen when there is no corner timer. Use this when the output is a screen for the speaker.
+- *Never on this screen*: messages and Flash stay on the stage display and the phone remote.
 
 **Event card.** One image for the output, for example the event's logo slide (PNG or JPG, ideally the size of the screen; it is fitted on black, never cut or stretched). Choose it under **On screen…**, or send it from the Command Center. Then either press **Event card** to put it up now, over anything that is playing, or choose *Between presentations: The event card* and it appears by itself whenever no presentation is live: it covers the app while a cue loads and comes back the moment you press Stop. The image is kept in the show folder. Blackout covers it.
 
@@ -371,13 +377,13 @@ It shows:
 - the **next cue**
 - the cue's **notes** (from the cue editor), as speaker notes
 - a large **countdown timer** that turns amber in the last 2 minutes and red with "+MM:SS" when over time, plus the time of day
-- **operator messages** as a banner across the top, optionally flashing
+- **operator messages** as a banner across the top, optionally flashing. **Flash** with no message makes the timer blink red instead.
 
 `/stage?view=timer` shows only the timer, for a dedicated countdown monitor. The page adapts to portrait tablets and phones.
 
 **Operator controls** are in the bar at the bottom of the main window:
 - *Timer*: type `5`, `2:30` or `1:00:00` and press Return to set it. ▶/⏸ starts and pauses, ⟲ resets.
-- *Message*: type and press Return to show it on stage. ⚡ makes it flash, ✕ clears it.
+- *Message to stage*: type and press Return to show it. The **Flash** switch works at once and by itself: it blinks the message, or the timer when there is no message, until you switch it off. **Clear** takes the message away and stops the blinking. The message and Flash also show on the presenter's phone, and on the timer on the output (see *Messages and Flash on the output* above).
 
 Each cue can have a **Timer (min)**. When that cue fires, the timer restarts with that duration (*Settings › Start the speaker timer when a cue with a timer fires*). The timer and messages can also be controlled over the API, OSC and Companion (below).
 
@@ -394,7 +400,7 @@ The module in `companion-module/` (Companion 4.0 or newer) provides:
   - Cue is live (red), Cue is next (yellow), Cue is loading, Cue file missing
   - Blackout, Something is live
   - Cue colour (the colour set in Deck Cue)
-- **Timer and message actions:** start/pause/reset/set/add time, show or clear a stage message (feedback: running, nearly done, over time, message showing).
+- **Timer and message actions:** start/pause/reset/set/add time, show or clear a stage message, Flash on/off/toggle (feedback: running, nearly done, over time, message showing, Flash is on).
 - **Variables:** `live_name`, `next_name`, `slide_text` (PDF cues), `timer`, `stage_message`, `cue_N_name` and more.
 - **Presets:** a Transport page, one button per cue that turns yellow when next and red when live, a Timer page (live countdown, 5–30 min, ±1 min) and a Stage messages page (WRAP UP, 5 MIN, …).
 
@@ -415,6 +421,7 @@ To install it:
 | `POST /api/timer/preset?n=N`, `/api/timer/until?time=HH:MM` | Start a saved timer; count down to a time of day |
 | `GET /api/info`, `PUT /api/files/<name>`, `POST /api/cues`, `/api/cue/<ref>/file`, `/update`, `/move?to=N`, `/delete` | Command Center: identify, receive files, manage cues (only when the computer accepts a Command Center; optional header `X-DeckCue-Key`) |
 | `POST /api/message?text=…&flash=1`, `/api/message/clear` | Stage message |
+| `POST /api/flash[?state=on\|off]` | Flash: blink the stage message, or the timer when there is no message (toggle without state) |
 | `POST /api/showmode[?state=on\|off]` | Show-machine mode (toggle without state) |
 | `POST /api/timerscreen[?state=on\|off][&content=timer\|clock\|card]` | Full-screen timer, clock or event card on the output. Without state it toggles: hides what is up, or shows the timer |
 | `POST /api/presenter/mute[?state=on\|off]` | Pause / allow the presenter remote |
@@ -431,7 +438,7 @@ To install it:
   - `/deckcue/cue/fire <n|id>`, `/deckcue/cue/arm <n|id>`, `/deckcue/cue/<n>/fire`, `/deckcue/cue/<n>/arm`
   - `/deckcue/arm/next`, `/deckcue/arm/prev`
   - `/deckcue/timer/start`, `/pause`, `/reset`, `/deckcue/timer/set <seconds>`, `/deckcue/timer/add <seconds>`
-  - `/deckcue/message <text> [flash 0|1]`, `/deckcue/message/clear`
+  - `/deckcue/message <text> [flash 0|1]`, `/deckcue/message/clear`, `/deckcue/flash [0|1]`
 - **Feedback:** sent to the host:port set in Settings, and for an hour to anything that sends `/deckcue/state` (which also gets the full state at once). Only values that change are re-sent.
   - `/deckcue/live/number i`, `/deckcue/live/name s`
   - `/deckcue/next/number i`, `/deckcue/next/name s`

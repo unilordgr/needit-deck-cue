@@ -427,6 +427,7 @@ function renderTimerScreenModal() {
   $('tsCardClear').hidden = !c.card;
   if (document.activeElement !== $('tsTitle')) $('tsTitle').value = c.title || '';
   $('tsClock').checked = !!c.showClock;
+  $('tsMessages').value = ['off', 'full', 'always'].includes(c.messages) ? c.messages : 'full';
   $('tsClock').disabled = c.idle === 'clock';
   $('tsLivePip').checked = !!c.livePip;
   $('tsContent').value = c.pip.content;
@@ -472,6 +473,7 @@ function setupTimerScreen() {
   };
   $('tsTitle').oninput = (e) => { tsCfg().title = e.target.value; tsSaveSoon(); };
   $('tsClock').onchange = (e) => { tsCfg().showClock = e.target.checked; save(); };
+  $('tsMessages').onchange = (e) => { tsCfg().messages = e.target.value; save(); };
   $('tsLivePip').onchange = (e) => { tsCfg().livePip = e.target.checked; save(); };
   $('tsContent').onchange = (e) => { tsCfg().pip.content = e.target.value; save(); };
   $('tsBg').onchange = (e) => { tsCfg().pip.bg = e.target.value; save(); };
@@ -1105,7 +1107,8 @@ function setupStageBar() {
   $('timerReset').onclick = () => api.timerCmd('reset');
   const send = () => api.stageMessage($('stageMsg').value.trim(), $('stageFlash').checked);
   $('stageMsg').addEventListener('keydown', (e) => { if (e.key === 'Enter') { send(); e.target.blur(); } });
-  $('stageFlash').onchange = () => { if (runtime.stageMessage && runtime.stageMessage.text) send(); };
+  // Flash works at once and by itself: it blinks what is on stage now (a half-typed message is not sent by it).
+  $('stageFlash').onchange = (e) => api.stageFlash(e.target.checked);
   $('stageClear').onclick = () => { $('stageMsg').value = ''; api.stageMessage('', false); };
   setInterval(tickTimer, 250);
 }
@@ -1605,7 +1608,9 @@ async function init() {
     $('stageMsg').classList.toggle('sent', !!onStage);
     // Show what's on stage now (from here, Companion or a backup's main), unless the operator is typing.
     if (document.activeElement !== $('stageMsg')) $('stageMsg').value = onStage;
-    $('stageFlash').checked = !!(s.stageMessage && s.stageMessage.flash);
+    const flashing = !!(s.stageMessage && s.stageMessage.flash);
+    $('stageFlash').checked = flashing; // the switch shows what the stage sees now, whoever set it
+    $('stageFlash').closest('label').classList.toggle('flashing', flashing);
   });
   api.on('show', async (p) => {
     show = p.show; shortcutReport = p.shortcutReport || {};

@@ -28,6 +28,29 @@ body[data-click] { cursor: pointer; }
 .full[data-card] .title, .full[data-card] .time, .full[data-card] .clock { display: none; }
 .full[data-card] .hint { z-index: 1; padding: 4px 10px; border-radius: 6px; background: rgba(0, 0, 0, .6); color: #fff; }
 
+/* ---------- message to the speaker, and Flash ----------
+   The message is a band across the top, over whatever this screen shows. Flash blinks the band; with no
+   message it blinks the timer instead, and a red frame where there is no timer to blink. */
+.msg {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 3; padding: 1.6vh 3vw; background: #fff; color: #000;
+  text-align: center; overflow-wrap: anywhere; text-wrap: balance;
+  font: 800 9vh/1.05 "Barlow Condensed", "Helvetica Neue", Arial, sans-serif;
+}
+.msg.flash { animation: msgflash .9s step-end infinite; }
+.full[data-msg] { padding-top: var(--msg-h, 0px); }
+.full[data-msg] .time { font-size: min(24vw, 40vh); }
+.full[data-msg] .time[data-long] { font-size: min(18vw, 40vh); }
+.full[data-flash] { animation: fullflash .9s step-end infinite; }
+.full[data-flash] .title, .full[data-flash] .time, .full[data-flash] .clock,
+.pip[data-flash] .pip-label, .pip[data-flash] .pip-time { animation: inkflash .9s step-end infinite; }
+.pip[data-flash] { animation: pipflash .9s step-end infinite; }
+.frame { position: fixed; inset: 0; z-index: 2; box-shadow: inset 0 0 0 1.6vh #e8352e; animation: frameflash .9s step-end infinite; }
+@keyframes msgflash { 50% { background: #e8352e; color: #fff; } }
+@keyframes fullflash { 50% { background: #e8352e; } }
+@keyframes pipflash { 50% { background: #e8352e; box-shadow: none; } }
+@keyframes inkflash { 50% { color: #fff; opacity: 1; text-shadow: none; } }
+@keyframes frameflash { 50% { opacity: 0; } }
+
 /* ---------- corner overlay ----------
    The box's font-size is its height in px; everything inside is sized in em, so the layout editor's
    preview (same class names in renderer/styles.css) matches the output exactly. */

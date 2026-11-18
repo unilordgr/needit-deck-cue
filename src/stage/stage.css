@@ -54,7 +54,10 @@ body.has-message .stage { height: calc(100vh - 12vh); }
   height: 12vh; display: flex; align-items: center; justify-content: center; text-align: center;
   background: #fff; color: #000; font-weight: 800; font-size: clamp(24px, 7vh, 110px); padding: 0 2vw; line-height: 1;
 }
-.message.flash { animation: flash 0.9s steps(2, start) infinite; }
+.message.flash { animation: flash 0.9s step-end infinite; }
+/* Flash with no message: the timer blinks instead. */
+body.flash-timer .timer-box { animation: flashbox 0.9s step-end infinite; }
+body.flash-timer .timer, body.flash-timer .clock { animation: flashink 0.9s step-end infinite; }
 
 .conn { position: fixed; right: 10px; bottom: 10px; width: 12px; height: 12px; border-radius: 50%; background: #19c26b; }
 .conn.down { background: var(--over); animation: blink 1s steps(2, start) infinite; }
@@ -78,3 +81,5 @@ body.timer-only .clock { font-size: 7vh; }
 
 @keyframes blink { 50% { opacity: .25; } }
 @keyframes flash { 50% { background: var(--over); color: #fff; } }
+@keyframes flashbox { 50% { background: var(--over); } }
+@keyframes flashink { 50% { color: #fff; opacity: 1; } }

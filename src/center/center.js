@@ -261,6 +261,23 @@ function versionBanner() {
 
 // ---------- event card, small timer, output ----------
 // Choose an image and send it to the computer (and the ones linked to it) as its event card.
+// Flash on or off, the same on every linked computer. Deck Cue before 0.7.5 can only blink a message that is
+// showing, and only by being sent that message again.
+function flashGroup(id, on) {
+  const old = [];
+  for (const t of group(id)) {
+    const sm = (t.state && t.state.stageMessage) || {};
+    const v = t.state && t.state.player ? t.state.player.version : '0';
+    let path = `/api/flash?state=${on ? 'on' : 'off'}`;
+    if (versionNewer('0.7.5', v)) {
+      if (!sm.text) { if (on) old.push(t.name); continue; }
+      path = `/api/message?text=${encodeURIComponent(sm.text)}&flash=${on ? 1 : 0}`;
+    }
+    window.center.action(t.id, 'POST', path).then((r) => { if (!r.ok) notice(`${t.name}: ${r.error || 'did not work'}`); });
+  }
+  if (old.length) notice(`${old.join(' and ')}: Flash without a message needs Deck Cue 0.7.5 or newer there. Update ${old.length === 1 ? 'it' : 'them'}, or send a message first.`);
+}
+
 async function sendCard(id) {
   const file = await window.center.pickCard();
   if (!file) return false;
@@ -420,6 +437,7 @@ function cardHtml(n) {
   const mode = screenMode(s);
   const ts = s.timerScreen || {};
   const manage = canManage(n);
+  const sm = s.stageMessage || {}; // what the speaker is being told now
   const differs = new Set(isLinked ? versionDiffs().map((d) => d.number) : []);
   const cues = s.cues.map((c) => `
     <li class="cue ${c.state}${c.missing ? ' missing' : ''}" data-cue="${esc(c.id)}" data-num="${c.number}" draggable="${manage}" style="--cue-color:${esc(c.color || '#3a3d43')}" title="Click to make this the next cue">
@@ -476,6 +494,11 @@ function cardHtml(n) {
         <input class="other" data-timer-set placeholder="Other" title="Another time: type minutes (5), minutes and seconds (2:30), or @15:30 to count down to that time of day. Then press Return.">
         ${manage ? '<button class="preset edit" data-act="presets" title="Add, change or remove the saved timers on this computer">Edit</button>' : ''}
       </div>
+      <div class="pc-say">
+        <input class="say${sm.text ? ' sent' : ''}" data-say maxlength="280" value="${esc(sm.text || '')}" placeholder="Message to the speaker" title="Type a message for the speaker and press Return. It shows on the stage display, the phone remote and the timer on the screen.">
+        <button class="btn small flash${sm.flash ? ' on' : ''}" data-act="flash" aria-pressed="${sm.flash ? 'true' : 'false'}" title="${sm.flash ? 'It is blinking now. Click to stop.' : 'Blink to get the speaker’s attention: the message, or the timer when there is no message. It blinks until you click again.'}">Flash</button>
+        <button class="btn ghost small" data-act="say-clear" ${sm.text || sm.flash ? '' : 'disabled'} title="Take the message away and stop the blinking">Clear</button>
+      </div>
       <div class="pc-go">
         <button class="btn go" data-act="go">GO</button>
         <button class="btn" data-act="prev">◀ Slide</button>
@@ -505,6 +528,12 @@ function cardHtml(n) {
           <div class="pos-grid" role="group" aria-label="Where the small timer sits on the screen">${PLACES.map((p) => `<button data-place="${p.id}" class="${pipCell(ts) === p.id ? 'on' : ''}" title="${p.name}" aria-label="${p.name}" ${manage ? '' : 'disabled'}></button>`).join('')}</div>
           <div class="seg sizes" role="group" aria-label="Size of the small timer">${SIZES.map((z) => `<button data-size="${z.h}" class="${pipSize(ts) === z.h ? 'on' : ''}" title="${z.name}" ${manage ? '' : 'disabled'}>${z.id}</button>`).join('')}</div>
         </div></div>
+      ${ts.messages ? `<div class="line"><span>Messages and Flash on the screen</span>
+        <select data-msgs ${manage ? '' : 'disabled'} title="A message and Flash are for the speaker. Choose whether the screen shows them too: it may be the one the audience sees.">
+          <option value="off"${ts.messages === 'off' ? ' selected' : ''}>Never</option>
+          <option value="full"${ts.messages === 'full' ? ' selected' : ''}>With the full-screen timer or clock</option>
+          <option value="always"${ts.messages === 'always' ? ' selected' : ''}>Always, also on top of the slides</option>
+        </select></div>` : ''}
       <div class="line"><span>Slideshows go to</span>
         <select data-output ${manage ? '' : 'disabled'} title="The screen of this computer that the slideshows (and the timer and the card) appear on">${outputOptions(s)}</select></div>
       <div class="line"><span>Black screen</span><button class="btn black small${s.blackout ? ' on' : ''}" data-act="blackout">${s.blackout ? 'Blackout is on' : 'Blackout'}</button></div>
@@ -514,7 +543,7 @@ function cardHtml(n) {
 // Everything that changes what a card looks like (the running timer is drawn separately by tick()).
 function signature(n) {
   const s = n.state;
-  return JSON.stringify([updateSig(n), linked.has(n.id), linked.has(n.id) && listsDiffer(), linked.has(n.id) && nextDiffers(), n.clash, n.name, n.online, n.manage, n.keyOk, n.platform, edits.filter((e) => e.nodeId === n.id), linked.has(n.id) && versionDiffs(), s && [s.show, s.live, s.next, s.blackout, s.timerScreen, s.outputs, s.output, s.timer.running, s.timerPresets, s.cues, s.message, s.messageLevel]]);
+  return JSON.stringify([updateSig(n), linked.has(n.id), linked.has(n.id) && listsDiffer(), linked.has(n.id) && nextDiffers(), n.clash, n.name, n.online, n.manage, n.keyOk, n.platform, edits.filter((e) => e.nodeId === n.id), linked.has(n.id) && versionDiffs(), s && [s.show, s.live, s.next, s.blackout, s.timerScreen, s.outputs, s.output, s.timer.running, s.timerPresets, s.cues, s.message, s.messageLevel, s.stageMessage]]);
 }
 
 function render() {
@@ -651,6 +680,8 @@ board.addEventListener('click', async (e) => {
     else if (a === 'timer-minus') actGroup(id, '/api/timer/add?seconds=-60');
     else if (a === 'timer-plus') actGroup(id, '/api/timer/add?seconds=60');
     else if (a === 'presets') openPresets(id);
+    else if (a === 'flash') flashGroup(id, !(n.state.stageMessage && n.state.stageMessage.flash));
+    else if (a === 'say-clear') actGroup(id, '/api/message/clear');
     else if (a === 'fire') actCue(id, c, 'fire');
     else if (a === 'edit') editCue(id, c);
     else if (a === 'edit-send') sendEdit(id, c);
@@ -679,6 +710,18 @@ board.addEventListener('click', async (e) => {
 board.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   if (e.target.matches('[data-cue-timer]')) { e.target.blur(); return; } // saved on change
+  if (e.target.matches('[data-say]')) {
+    // The message goes to every linked computer, blinking or not as on this one. An empty box takes the message away.
+    const id = e.target.closest('.pc').dataset.id;
+    const text = e.target.value.trim();
+    const me = nodeById(id);
+    const on = !!(me && me.state && me.state.stageMessage && me.state.stageMessage.flash);
+    for (const t of group(id)) {
+      window.center.action(t.id, 'POST', `/api/message?text=${encodeURIComponent(text)}&flash=${on ? 1 : 0}`).then((r) => { if (!r.ok) notice(`${t.name}: ${r.error || 'did not work'}`); });
+    }
+    e.target.blur();
+    return;
+  }
   if (!e.target.matches('[data-timer-set]')) return;
   const id = e.target.closest('.pc').dataset.id;
   const text = e.target.value.trim();
@@ -709,6 +752,7 @@ board.addEventListener('change', (e) => {
   // The screens belong to that one computer, so this is never passed on to the linked ones.
   if (e.target.matches('[data-output]') && e.target.value !== 'missing') act(card.dataset.id, '/api/output', { output: e.target.value });
   if (e.target.matches('[data-pip]')) actGroup(card.dataset.id, '/api/timerscreen/config', { livePip: e.target.checked });
+  if (e.target.matches('[data-msgs]')) actGroup(card.dataset.id, '/api/timerscreen/config', { messages: e.target.value });
   if (e.target.matches('[data-cue-timer]')) {
     const n = nodeById(card.dataset.id);
     const cue = n.state.cues.find((x) => x.id === e.target.closest('.cue').dataset.cue);
