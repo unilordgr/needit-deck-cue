@@ -278,6 +278,9 @@ function flashGroup(id, on) {
   if (old.length) notice(`${old.join(' and ')}: Flash without a message needs Deck Cue 0.7.5 or newer there. Update ${old.length === 1 ? 'it' : 'them'}, or send a message first.`);
 }
 
+// Identify came with Deck Cue 0.7.6.
+const canIdentify = (n) => !!(n.state && n.state.player && !versionNewer('0.7.6', n.state.player.version));
+
 async function sendCard(id) {
   const file = await window.center.pickCard();
   if (!file) return false;
@@ -452,6 +455,7 @@ function cardHtml(n) {
         <label class="cue-timer" title="Timer for this presentation, in minutes. It starts by itself when the cue plays.">Timer
           <input data-cue-timer inputmode="decimal" value="${c.duration || ''}" placeholder="none" ${manage ? '' : 'disabled'}> min</label>
       </div>
+      ${(c.missing ? [] : c.problems || []).map((p) => `<div class="c-warn ${p.level === 'error' ? 'error' : ''}" title="Found by the check on ${esc(n.name)}">${p.level === 'error' ? 'Problem' : 'Check'}: ${esc(p.text)}</div>`).join('')}
       ${editStrip(n, c)}
     </li>`).join('');
   const presets = (s.timerPresets || []).map((p, i) => `<button class="preset" data-preset="${i + 1}" title="Start a ${p.minutes}-minute timer${p.name ? ` (${esc(p.name)})` : ''}">${esc(`${p.name ? `${p.name} ` : ''}${p.minutes}`)}</button>`).join('');
@@ -522,12 +526,20 @@ function cardHtml(n) {
         <span class="card-name${ts.card ? ' set' : ''}" title="${esc(ts.card || '')}">${esc(ts.card || 'No image yet')}</span>
         <button class="btn small" data-act="card-pick" ${manage ? '' : 'disabled'} title="An image for the screen, for example the event’s logo slide (PNG or JPG, ideally the size of the screen)">${ts.card ? 'Change' : 'Choose image'}</button>
         ${ts.card ? `<button class="btn ghost small" data-act="card-clear" ${manage ? '' : 'disabled'} title="Take the event card away from this computer" aria-label="Remove the event card">✕</button>` : ''}</div>
+      ${ts.title !== undefined ? `<div class="line"><span>Title above the timer</span>
+        <input class="title-in" data-title maxlength="60" value="${esc(ts.title)}" placeholder="For example: Starting in" ${manage ? '' : 'disabled'} title="A line above the full-screen timer or clock. Type it and press Return."></div>
+      <div class="line"><label class="check"><input type="checkbox" data-clock ${ts.showClock ? 'checked' : ''} ${manage ? '' : 'disabled'}><span>Current time under the full-screen timer</span></label></div>` : ''}
       <div class="line"><label class="check"><input type="checkbox" data-pip ${ts.livePip ? 'checked' : ''} ${manage ? '' : 'disabled'}><span>Small timer on top of the slides</span></label></div>
       <div class="line"><span>Small timer place and size</span>
         <div class="pip-set">
           <div class="pos-grid" role="group" aria-label="Where the small timer sits on the screen">${PLACES.map((p) => `<button data-place="${p.id}" class="${pipCell(ts) === p.id ? 'on' : ''}" title="${p.name}" aria-label="${p.name}" ${manage ? '' : 'disabled'}></button>`).join('')}</div>
           <div class="seg sizes" role="group" aria-label="Size of the small timer">${SIZES.map((z) => `<button data-size="${z.h}" class="${pipSize(ts) === z.h ? 'on' : ''}" title="${z.name}" ${manage ? '' : 'disabled'}>${z.id}</button>`).join('')}</div>
         </div></div>
+      ${ts.pip && ts.pip.content ? `<div class="line"><span>Small timer shows</span>
+        <div class="pair">
+          <select data-pip-content ${manage ? '' : 'disabled'} title="What the small timer shows"><option value="timer"${ts.pip.content === 'timer' ? ' selected' : ''}>The timer</option><option value="clock"${ts.pip.content === 'clock' ? ' selected' : ''}>The current time</option></select>
+          <select data-pip-bg ${manage ? '' : 'disabled'} title="The box behind the figures"><option value="solid"${ts.pip.bg === 'solid' ? ' selected' : ''}>Solid box</option><option value="glass"${ts.pip.bg === 'glass' ? ' selected' : ''}>See-through box</option><option value="none"${ts.pip.bg === 'none' ? ' selected' : ''}>Figures only</option></select>
+        </div></div>` : ''}
       ${ts.messages ? `<div class="line"><span>Messages and Flash on the screen</span>
         <select data-msgs ${manage ? '' : 'disabled'} title="A message and Flash are for the speaker. Choose whether the screen shows them too: it may be the one the audience sees.">
           <option value="off"${ts.messages === 'off' ? ' selected' : ''}>Never</option>
@@ -535,7 +547,12 @@ function cardHtml(n) {
           <option value="always"${ts.messages === 'always' ? ' selected' : ''}>Always, also on top of the slides</option>
         </select></div>` : ''}
       <div class="line"><span>Slideshows go to</span>
-        <select data-output ${manage ? '' : 'disabled'} title="The screen of this computer that the slideshows (and the timer and the card) appear on">${outputOptions(s)}</select></div>
+        <div class="pair">
+          <select data-output ${manage ? '' : 'disabled'} title="The screen of this computer that the slideshows (and the timer and the card) appear on">${outputOptions(s)}</select>
+          ${canIdentify(n) ? '<button class="btn ghost small" data-act="identify" title="Show each screen’s number on it for a moment, so you can tell which is which. Someone at that computer has to look.">Identify</button>' : ''}
+        </div></div>
+      ${s.presenter && s.presenter.enabled ? `<div class="line"><span>Presenter’s phone remote</span><button class="btn small${s.presenter.muted ? ' warn-on' : ''}" data-act="phone" title="${s.presenter.muted ? 'The presenter’s phone cannot change slides now. Click to allow it again.' : 'Stop the presenter’s phone from changing slides for now.'}">${s.presenter.muted ? 'Paused. Allow again' : 'Pause'}</button></div>` : ''}
+      <div class="line"><span>Show mode</span><button class="btn small${s.showMode ? ' warn-on' : ''}" data-act="showmode" title="Show mode keeps that computer awake and its notifications quiet during the show.">${s.showMode ? 'Show mode is on' : 'Switch on'}</button></div>
       <div class="line"><span>Black screen</span><button class="btn black small${s.blackout ? ' on' : ''}" data-act="blackout">${s.blackout ? 'Blackout is on' : 'Blackout'}</button></div>
     </details>`;
 }
@@ -543,7 +560,7 @@ function cardHtml(n) {
 // Everything that changes what a card looks like (the running timer is drawn separately by tick()).
 function signature(n) {
   const s = n.state;
-  return JSON.stringify([updateSig(n), linked.has(n.id), linked.has(n.id) && listsDiffer(), linked.has(n.id) && nextDiffers(), n.clash, n.name, n.online, n.manage, n.keyOk, n.platform, edits.filter((e) => e.nodeId === n.id), linked.has(n.id) && versionDiffs(), s && [s.show, s.live, s.next, s.blackout, s.timerScreen, s.outputs, s.output, s.timer.running, s.timerPresets, s.cues, s.message, s.messageLevel, s.stageMessage]]);
+  return JSON.stringify([updateSig(n), linked.has(n.id), linked.has(n.id) && listsDiffer(), linked.has(n.id) && nextDiffers(), n.clash, n.name, n.online, n.manage, n.keyOk, n.platform, edits.filter((e) => e.nodeId === n.id), linked.has(n.id) && versionDiffs(), s && [s.show, s.live, s.next, s.blackout, s.timerScreen, s.outputs, s.output, s.timer.running, s.timerPresets, s.cues, s.message, s.messageLevel, s.stageMessage, s.showMode, s.presenter]]);
 }
 
 function render() {
@@ -682,6 +699,9 @@ board.addEventListener('click', async (e) => {
     else if (a === 'presets') openPresets(id);
     else if (a === 'flash') flashGroup(id, !(n.state.stageMessage && n.state.stageMessage.flash));
     else if (a === 'say-clear') actGroup(id, '/api/message/clear');
+    else if (a === 'identify') act(id, '/api/identify'); // that computer's own screens only
+    else if (a === 'showmode') actGroup(id, `/api/showmode?state=${n.state.showMode ? 'off' : 'on'}`);
+    else if (a === 'phone') actGroup(id, `/api/presenter/mute?state=${n.state.presenter && n.state.presenter.muted ? 'off' : 'on'}`);
     else if (a === 'fire') actCue(id, c, 'fire');
     else if (a === 'edit') editCue(id, c);
     else if (a === 'edit-send') sendEdit(id, c);
@@ -709,7 +729,7 @@ board.addEventListener('click', async (e) => {
 
 board.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
-  if (e.target.matches('[data-cue-timer]')) { e.target.blur(); return; } // saved on change
+  if (e.target.matches('[data-cue-timer], [data-title]')) { e.target.blur(); return; } // saved on change
   if (e.target.matches('[data-say]')) {
     // The message goes to every linked computer, blinking or not as on this one. An empty box takes the message away.
     const id = e.target.closest('.pc').dataset.id;
@@ -753,6 +773,10 @@ board.addEventListener('change', (e) => {
   if (e.target.matches('[data-output]') && e.target.value !== 'missing') act(card.dataset.id, '/api/output', { output: e.target.value });
   if (e.target.matches('[data-pip]')) actGroup(card.dataset.id, '/api/timerscreen/config', { livePip: e.target.checked });
   if (e.target.matches('[data-msgs]')) actGroup(card.dataset.id, '/api/timerscreen/config', { messages: e.target.value });
+  if (e.target.matches('[data-title]')) actGroup(card.dataset.id, '/api/timerscreen/config', { title: e.target.value.trim() });
+  if (e.target.matches('[data-clock]')) actGroup(card.dataset.id, '/api/timerscreen/config', { showClock: e.target.checked });
+  if (e.target.matches('[data-pip-content]')) actGroup(card.dataset.id, '/api/timerscreen/config', { pip: { content: e.target.value } });
+  if (e.target.matches('[data-pip-bg]')) actGroup(card.dataset.id, '/api/timerscreen/config', { pip: { bg: e.target.value } });
   if (e.target.matches('[data-cue-timer]')) {
     const n = nodeById(card.dataset.id);
     const cue = n.state.cues.find((x) => x.id === e.target.closest('.cue').dataset.cue);

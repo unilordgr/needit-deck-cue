@@ -133,6 +133,8 @@ Connect all the computers to the same network (a simple switch is enough). The C
 - **Choose what the screen shows:** Slides, a full-screen **Timer**, the **Clock**, or the **Card** (the event card: an image such as the event's logo slide; the first click asks for the image and sends it). Under *More*: what to show between presentations (nothing, the timer, the time or the event card), the event card's image, a small timer on top of the slides with **where it sits** (nine places) **and how big it is** (S, M, L), and Blackout.
 - **Choose the screen the slideshows go to** on each computer (*More › Slideshows go to*). The list shows that computer's own screens. Two laptops for one talk: link them, send both the same presentation, and choose a different screen on each. For speaker notes, choose the laptop's *own* screen on the notes laptop: the presentation app then puts its presenter view (notes) on the other screen, if presenter view is switched on in that app. (That part is the presentation app's doing and has not been tried by us yet. WPS Office on Windows and Keynote choose their screen themselves.)
 - **Run the timer:** saved timers with one click, Start/Pause, −1 and +1 minute while it runs, another time, or `@15:30` to count down to a time of day.
+- **See what the check found:** a cue with a problem shows it in its own words under the cue (*Check: Fonts not on this computer…*, *Problem: Linked video not found…*), as found on that computer.
+- **Set up the screen from here** (*More*): a title above the full-screen timer, the current time under it, what the small timer shows and its background, **Identify** (each screen of that computer shows its number for a moment), **Show mode** on or off, and pausing the presenter's phone remote when that computer uses one.
 - **Talk to the speaker:** type a **message** on a computer's card and press Return, press **Flash** to make it blink (or to blink the timer when there is no message), **Clear** to take both away. Linked computers get the same. Under *More › Messages and Flash on the screen* you choose whether that computer's screen shows them too (see *Messages and Flash on the output* below).
 
 **Changing a presentation during the event**
@@ -423,6 +425,7 @@ To install it:
 | `POST /api/message?text=…&flash=1`, `/api/message/clear` | Stage message |
 | `POST /api/flash[?state=on\|off]` | Flash: blink the stage message, or the timer when there is no message (toggle without state) |
 | `POST /api/showmode[?state=on\|off]` | Show-machine mode (toggle without state) |
+| `POST /api/identify` | Each screen shows its number for a moment |
 | `POST /api/timerscreen[?state=on\|off][&content=timer\|clock\|card]` | Full-screen timer, clock or event card on the output. Without state it toggles: hides what is up, or shows the timer |
 | `POST /api/presenter/mute[?state=on\|off]` | Pause / allow the presenter remote |
 | `POST /api/presenter/next`, `/prev`, `/check` + header `X-Presenter-Pin` | Presenter remote (PIN) |

@@ -12,6 +12,7 @@
 //        POST /api/flash[?state=on|off]        blink the stage message, or the timer when there is no message
 //                                              (toggle without state)
 //        POST /api/showmode[?state=on|off]     show-machine mode (toggle without state)
+//        POST /api/identify                    show each screen's number on it for a moment
 //        POST /api/timerscreen[?state=on|off]  full-screen timer on the output (toggle without state)
 //        GET  /api/cue/<ref>/file             the cue's PDF (for stage display previews)
 //        GET  /api/cue/<ref>/thumb            first-slide thumbnail image
@@ -87,6 +88,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
       case 'timer': return actions.timer(arg.cmd, arg.seconds);
       case 'message': return actions.stageMessage(arg.text, arg.flash);
       case 'flash': return actions.stageFlash(arg);
+      case 'identify': return actions.identify();
       case 'showmode': return actions.showMode(arg);
       case 'timerscreen': return actions.timerScreen(arg.on, arg.content);
       case 'presenter-mute': return actions.presenterMute(arg);
@@ -124,6 +126,7 @@ function createControlServer({ getState, getShow, actions, onStatus, onFollowers
     }
     if (a === 'message' && !b) return { action: 'message', arg: { text: query.get('text') || '', flash: ['1', 'true', 'on'].includes(query.get('flash')) } };
     if (a === 'message' && b === 'clear' && !c) return { action: 'message', arg: { text: '', flash: false } };
+    if (a === 'identify' && !b) return { action: 'identify' };
     if (a === 'flash' && !b) {
       const st = query.get('state');
       return { action: 'flash', arg: st === 'on' ? true : st === 'off' ? false : undefined };

@@ -1501,9 +1501,10 @@ function remoteState() {
       mode: state.timerScreen.mode, content: state.timerScreen.content, forced: !!state.timerScreen.forced,
       idle: show.settings.timerScreen.idle, livePip: !!show.settings.timerScreen.livePip,
       messages: messageShare(),
+      title: show.settings.timerScreen.title || '', showClock: !!show.settings.timerScreen.showClock,
       card: cardFile() ? path.basename(cardFile()) : '',
       note: state.timerScreen.note || null,
-      pip: { x: show.settings.timerScreen.pip.x, y: show.settings.timerScreen.pip.y, h: show.settings.timerScreen.pip.h },
+      pip: { x: show.settings.timerScreen.pip.x, y: show.settings.timerScreen.pip.y, h: show.settings.timerScreen.pip.h, bg: show.settings.timerScreen.pip.bg, content: show.settings.timerScreen.pip.content },
     },
     // The screens of this computer and the one the slideshows go to, so a Command Center can choose it.
     outputs: listDisplays().map((d) => ({ id: d.id, label: d.label, primary: d.primary, internal: d.internal, width: d.bounds.width, height: d.bounds.height })),
@@ -1530,6 +1531,8 @@ function remoteState() {
         file: c.file ? path.basename(c.file.path) : null, fullscreen: cueAutoSlideshow(c), duration: c.duration || null,
         app: cueApp && presenters.APPS[cueApp] ? presenters.APPS[cueApp].short : null,
         preflight: pf ? pf.level : null, changed: !!ver.changedAt, newer: ver.newer ? ver.newer.name : null,
+        // What the check found that needs a look, in its own words, so a Command Center can show it from afar.
+        problems: pf ? pf.items.filter((x) => x.level === 'error' || x.level === 'warn').slice(0, 4).map((x) => ({ level: x.level, text: String(x.text).slice(0, 220) })) : [],
         // Which version of the file this computer has (see fileSig), and when it was last saved.
         sig: missing ? null : fileSig(c.file.path), fileDate: missing ? null : Math.round(Number((fileStamp(c.file.path) || '').split(':')[0])) || null,
       };
@@ -1823,6 +1826,7 @@ app.whenReady().then(() => {
       timer: timerCommand,
       stageMessage: setStageMessage,
       stageFlash: setStageFlash,
+      identify: () => identifyDisplays(),
       showMode: (on) => setShowMode(on),
       presenter: presenterAction,
       presenterMute: (on) => setPresenterMuted(on),

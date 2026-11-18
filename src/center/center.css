@@ -154,6 +154,9 @@ body.mac .topbar { padding-left: 88px; }
 /* The line under a cue whose file is open for editing on this computer. */
 .c-edit { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin-top: 2px; border-radius: 6px; background: var(--panel-2); font-size: 15px; line-height: 1.3; cursor: default; }
 .c-edit > span:first-child { flex: 1; min-width: 0; }
+/* What the check on that computer found for this cue. */
+.c-warn { grid-column: 1 / -1; padding: 5px 8px; margin-top: 2px; border-radius: 6px; background: var(--armed-deep); color: #ffd66b; font-size: 15px; line-height: 1.3; cursor: default; overflow-wrap: anywhere; }
+.c-warn.error { background: #4a1512; color: #ffd9d6; font-weight: 600; }
 .c-edit.changed { background: var(--armed-deep); color: #ffd66b; }
 .c-edit.sent { color: #9be3b4; }
 .c-edit-btns { display: flex; gap: 6px; flex: none; }
@@ -190,6 +193,10 @@ body.mac .topbar { padding-left: 88px; }
 .more[open] summary { margin-bottom: 10px; color: var(--text); }
 .more .line { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; font-size: 16px; }
 .more .line select { flex: 0 0 190px; }
+.more .line .pair { display: flex; gap: 6px; flex: 0 0 auto; max-width: 62%; }
+.more .line .pair select { flex: 1 1 auto; min-width: 0; }
+.more .line input.title-in { flex: 0 0 190px; min-width: 0; padding: 6px 10px; font-size: 16px; }
+.btn.warn-on { background: var(--armed); border-color: var(--armed); color: #1c1403; }
 .more label.check { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .more .line.why { color: #ffd66b; font-size: 15px; line-height: 1.35; justify-content: flex-start; }
 .more .card-name { flex: 1; min-width: 0; text-align: right; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
